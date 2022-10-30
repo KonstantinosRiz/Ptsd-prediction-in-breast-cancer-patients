@@ -57,53 +57,65 @@ decision_tree <- function(cp=0.01, minsplit=20, maxdepth=30) {
   # summary(short_tree)
 }
 
-run_model <- function(gs, create_fit, train_features, train_labels, test_features, test_labels) {
+run_model <- function(gs, train_features, train_labels, test_features, test_labels, method) {
+  
+  f2_summary <- function(data, lev=NULL, model=NULL) {
+    out <- fScore(actual=as.integer(data$obs) - 1, predicted=as.integer(data$pred) - 1, beta=2)
+    # out <- fScore(actual=data$obs, predicted=data$pred, beta=2)
+    names(out) <- "f2"
+    out
+  }
+  
+  # Use k-fold cross validation to evaluate the models
+  # and the appropriate summary function for the metric (f2)
+  ctrl <- trainControl(method = "cv", number = k_fold,
+                       summaryFunction = f2_summary,
+                       sampling = sampling_method)
+  
   # Create the models
-  gs <- gs %>% mutate(fit = pmap(gs, create_fit))
+  results <- train(train_features, train_labels[, 1], method = method,
+        trControl = ctrl,
+        # preProcess = c("center", "scale"),
+        tuneGrid=gs,
+        metric="f2"
+  )
+  optimal_model <- results$finalModel
+  # print("Finished model, now predicting")
   
-  # # Create the predictions
-  # gs <- gs %>%
-  #   mutate(preds = map(fit, compute_preds, test_features))
-  # 
-  # # Compute the models' accuracy
-  # gs <- gs %>%
-  #   mutate(test_acc = map_dbl(preds, compute_accuracy, test_labels))
-  # 
-  # # Compute the models f2 score
-  # gs <- gs %>%
-  #   mutate(f2_score = map_dbl(preds, compute_f2, test_labels))
+  preds <- predict(results, test_features)
   
-  # Cross-validation with accuracy metric
+  acc <- compute_accuracy(preds, test_labels)
+  grid_results <- results$results
+  grid_results <- grid_results %>% arrange(desc(f2))
+  f2 <- grid_results$f2[1]
+  conf_matrix <- confusionMatrix(data=preds, reference=test_labels, positive="1")
   
-  
-  
-  # Include the models confusion matrix
-  ######## check the conf matrix existing function
-  gs <- gs %>%
-    mutate(conf_matrix = map(fit, create_conf_matrix,
-                             test_features, test_labels))
-  
-  # Arrange by optimal metrics
-  gs <- gs %>% arrange(desc(f2_score), desc(test_acc))
-  
-  list("best_model" = gs[1, ],
-               "all_models" = gs)
+  list("best_fit" = optimal_model,
+       "preds" = preds,
+       "grid" = grid_results,
+       "acc" = acc,
+       "f2" = f2,
+       "conf_matrix" = conf_matrix)
 }
 
-create_decision_tree <- function(cp, minsplit, maxdepth, train_features, train_labels) {
-  ########## this is where i have to do better, just like clarke
+f2_summary <- function(data, lev=NULL, model=NULL) {
+  out <- fScore(actual=as.integer(data$obs) - 1, predicted=as.integer(data$pred) - 1, beta=2)
+  # out <- fScore(actual=data$obs, predicted=data$pred, beta=2)
+  names(out) <- "f2"
+  out
+}
+
+create_decision_tree <- function(cp, minsplit, maxdepth, train_features, train_labels, ctrl) {
   
-  train <- 
-  
-  rpart(
-    M6_ptsd~. , method="class", parms=list(split = "gini"),
-    data = balanced_train,
-    control=rpart.control(
-      cp=cp,
-      minsplit=minsplit,
-      maxdepth=maxdepth 
-    )
-  )
+  train(train_features, train_labels[, 1], method = "rpart",
+         trControl = ctrl,
+         # preProcess = c("center", "scale"),
+         # tuneGrid=gs,
+         metric="f2",
+         # method="class",
+          parms=list(split="gini"),
+         control=rpart.control(cp=cp, minsplit=minsplit, maxdepth=maxdepth)
+  )$finalModel
 }
 
 compute_preds <- function(fit, test_features) {

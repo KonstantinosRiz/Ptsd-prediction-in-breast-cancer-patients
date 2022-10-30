@@ -15,6 +15,7 @@ library(dplyr)
 library(corrplot)
 library(caret)
 
+
 ####  Argument parsing ####
 
 # args = commandArgs(trailingOnly=TRUE)
@@ -25,6 +26,7 @@ library(caret)
 # } else {
 #   month_label <- args[1]
 # }
+
 
 ####  Data loading and variable renaming  ####
 
@@ -53,6 +55,7 @@ label <- potential_labels[, label_name]
 # during every step
 preprocessing_comments <- list()
 
+
 ####  1 Eliminate samples with no label  ####
 
 # This has to happen before step 2 because I don't wanna count as missing
@@ -66,6 +69,7 @@ label_1 <- label[!is.na(label)]
 comment_1 <- sprintf("Step 1: Eliminated %i samples with no %s label",
                      nrow(potential_features) - nrow(features_1), label_name)
 preprocessing_comments <- append(preprocessing_comments, comment_1)
+
 
 ####  2 Eliminate features with too many missing values ####
 
@@ -88,6 +92,7 @@ if (length(temp) != 0) {
   comment_2 <- sprintf("Step 2: No features had enough missing values to be eliminated using threshold %.2f", missing_samples_threshold)
 }
 preprocessing_comments <- append(preprocessing_comments, comment_2)
+
 
 ####  3 Eliminate samples with too many missing values  ####
 
@@ -114,6 +119,150 @@ if (length(temp) != 0) {
 }
 preprocessing_comments <- append(preprocessing_comments, comment_3)
 
+
+####  4 Split the dataset into train/test ####
+
+# Threshold the label
+new_final_label <- as.factor(as.integer(final_label > ptsd_threshold))
+# new_label_name <- paste(month_label, "_ptsd", sep="")
+
+train_indices <- createDataPartition(new_final_label, p=train_size, list=FALSE)
+
+# Unimputed test features/labels to be used on models that can handle it
+raw_test_features <- features_3[-train_indices, ]
+raw_test_labels <- new_final_label[-train_indices]
+
+# Comment handling
+comment_4 <- sprintf("Step 4: Split the dataset into train/test with a %.2f ratio", train_size)
+preprocessing_comments <- append(preprocessing_comments, comment_4)
+
+####  5 Impute missing values ####
+
+# I choose to impute the missing values before eliminating low variance features
+# because the features I might eliminate (despite the low variance) can impact
+# the imputation.
+
+# I impute using only the train samples but apply the imputation process to the
+# test set as well.
+ignore_vector <- rep(TRUE, nrow(features_3))
+ignore_vector[train_indices] <- FALSE
+
+imp_data <- mice(complete_data, m=number_of_imputed_datasets, method=imputation_method, ignore=ignore_vector)
+# imp_data$imp
+
+features_5 = list()
+for (i in 1 : (number_of_imputed_datasets + 1)) {
+  features_5[[i]] <- complete(imp_data, i)
+}
+
+# Comment handling
+comment_5 <- sprintf("Step 5: Used Multiple Imputation Chained Equations (MICE) to impute %i different datasets", number_of_imputed_datasets)
+preprocessing_comments <- append(preprocessing_comments, comment_5)
+
+# We plan to use all 5 different imputed datasets to predict using our model and
+# afterwards use a voting classifier to ensemble the 5 different predictions.
+
+
+####  6 Imputed datasets' preprocessing ####
+
+features_6_1 = list()
+final_train_features = list()
+comments_6_1 = list()
+comments_6_2 = list()
+
+for (i in 1:number_of_imputed_datasets) {
+  
+  ####  6.1 Eliminate features with very low variance  ####
+  
+  # zero_var_features <- apply(features_5[[i]], 2, function(x) var(x) == 0)
+  # features_6_1[[i]] <- features_5[[i]][, !zero_var_features]
+  
+  near_zero_var_indices <- nearZeroVar(features_5[[i]], freqCut=freqCut)
+  features_6_1[[i]] <- features_5[[i]][, -near_zero_var_indices]
+  
+  # Comment handling
+  # temp <- names(zero_var_features[which(zero_var_features == TRUE)])
+  temp <- names(features_5[[i]])[near_zero_var_indices]
+  if (length(temp) != 0) {
+    comment_6_1 <- "Step 6.1: Eliminated following features with near zero variance"
+    comment_6_2 <- paste(temp, collapse="\n")
+    comment_6 <- paste(comment_6_1, comment_6_2, sep="\n")
+  } else {
+    comment_6 <- "Step 6.1: No features with zero variance were found"
+  }
+  comments_6_1[[i]] <- comment_6
+  
+  ####  6.2 Eliminate highly correlated features  ####
+  
+  # Use only numeric features
+  numeric_features <- features_6_1[[i]] %>%
+    select_if(is.numeric)
+  
+  correlation <- cor(numeric_features, method=c(correlation_method))
+  
+  # Visualization of a small part of the correlation plot
+  # corrplot(correlation[1:4, 1:4])
+  
+  # Find which features need to be eliminated due to high correlation with others
+  correlation[!lower.tri(correlation)] <- 0
+  numeric_features_selection <- apply(correlation, 1,
+                                      function(row) any(abs(row) > cor_threshold, na.rm = TRUE))
+  to_eliminate_numeric_features <- numeric_features_selection[which(numeric_features_selection == TRUE)]
+  final_train_features[[i]] <- features_6_1[[i]][, -which(names(features_6_1[[i]]) %in%
+                                                            names(to_eliminate_numeric_features))]
+  
+  # Comment handling
+  temp <- names(to_eliminate_numeric_features)
+  if (length(temp) != 0) {
+    
+    # For every feature we want to eliminate we find the correlated with it features
+    temp2 <- list()
+    for (j in temp) {
+      corr_row <- correlation[j, ]
+      correlated_features <- names(corr_row[abs(corr_row) > cor_threshold])
+      temp2 <- append(temp2, paste(correlated_features, collapse=", "))
+    }
+    
+    comment_7_1 <- "Step 6.2: Eliminated following features due to high correlation with another feature"
+    comment_7_2 <- paste(temp, temp2, sep=" is highly correlated with ", collapse="\n")
+    comment_7 <- paste(comment_7_1, comment_7_2, sep="\n\n")
+  } else {
+    comment_7 <- sprintf("Step 6.2: No highly correlated features were observed using threshold %s", cor_threshold)
+  }
+  comments_6_2[[i]] <- comment_7
+}
+
+preprocessing_comments[[length(preprocessing_comments)+1]] <- comments_6_1
+preprocessing_comments[[length(preprocessing_comments)+1]] <- comments_6_2
+
+####  Final save file which will be used to train and evaluate the models ####
+
+if (val_size != 0) {
+  save(final_train_features, train_labels, val_features, val_labels, test_features, test_labels, preprocessing_comments, config_list, file=save_file_name)
+} else {
+  save(final_train_features, train_labels, test_features, test_labels, preprocessing_comments, config_list, file=save_file_name)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# temp_train_labels <- new_final_label[train_indices]
+# if (val_size != 0) {
+#   val_indices <- createDataPartition(temp_train_labels, p=val_size, list=FALSE)
+# }
 
 ####  4 Split the dataset into train / validation (for the voting classifier of
 #       the differently imputed datasets) / test (outer loop) and threshold the label  ####
@@ -160,7 +309,12 @@ preprocessing_comments <- append(preprocessing_comments, comment_4)
 # because the features I might eliminate (despite the low variance) can impact
 # the imputation.
 
-imp_data <- mice(train_features, m=number_of_imputed_datasets, method=imputation_method)
+# I impute using only the train samples but apply the imputation process to the
+# test set as well.
+complete_data <- rbind(train_features, test_features)
+ignore_vector <- rep( c(FALSE, TRUE), times=c( nrow(train_features), nrow(test_features) ))
+
+imp_data <- mice(complete_data, m=number_of_imputed_datasets, method=imputation_method, ignore=ignore_vector)
 # imp_data$imp
 
 features_5 = list()
@@ -175,6 +329,7 @@ preprocessing_comments <- append(preprocessing_comments, comment_5)
 # We plan to use all 5 different imputed datasets to predict using our model and
 # afterwards use a voting classifier to ensemble the 5 different predictions.
 
+
 ####  6 Imputed datasets' preprocessing ####
 
 features_6_1 = list()
@@ -183,9 +338,9 @@ comments_6_1 = list()
 comments_6_2 = list()
 
 for (i in 1:number_of_imputed_datasets) {
-
+  
   ####  6.1 Eliminate features with very low variance  ####
-
+  
   # zero_var_features <- apply(features_5[[i]], 2, function(x) var(x) == 0)
   # features_6_1[[i]] <- features_5[[i]][, !zero_var_features]
   
@@ -203,9 +358,9 @@ for (i in 1:number_of_imputed_datasets) {
     comment_6 <- "Step 6.1: No features with zero variance were found"
   }
   comments_6_1[[i]] <- comment_6
-
+  
   ####  6.2 Eliminate highly correlated features  ####
-
+  
   # Use only numeric features
   numeric_features <- features_6_1[[i]] %>%
     select_if(is.numeric)
@@ -218,10 +373,10 @@ for (i in 1:number_of_imputed_datasets) {
   # Find which features need to be eliminated due to high correlation with others
   correlation[!lower.tri(correlation)] <- 0
   numeric_features_selection <- apply(correlation, 1,
-                                         function(row) any(abs(row) > cor_threshold, na.rm = TRUE))
+                                      function(row) any(abs(row) > cor_threshold, na.rm = TRUE))
   to_eliminate_numeric_features <- numeric_features_selection[which(numeric_features_selection == TRUE)]
   final_train_features[[i]] <- features_6_1[[i]][, -which(names(features_6_1[[i]]) %in%
-                                                          names(to_eliminate_numeric_features))]
+                                                            names(to_eliminate_numeric_features))]
   
   # Comment handling
   temp <- names(to_eliminate_numeric_features)
