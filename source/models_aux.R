@@ -1,25 +1,3 @@
-print_comments <- function(comments) {
-  str1 <- paste(comments[1:5], collapse="\n-----------------------------------------------------------------------------------\n")
-  str2 <- "Step 6: Preprocessing all the imputed datasets separately"
-  str3 <- paste(str1, str2, sep="\n-----------------------------------------------------------------------------------\n")
-  
-  starting <- TRUE
-  for (i in 1:as.integer(config_list["number_of_imputed_datasets"])) {
-    str4_1 <- sprintf("Dataset #%i\n", i)
-    str4_2 <- paste(comments[[6]][[i]], comments[[7]][[i]], sep="\n-----------------------------------------------------------------------------------\n")
-    
-    str4_3 <- paste(str4_1, str4_2, sep="\n\n")
-    
-    if (starting) {
-      str4 <- str4_3
-      starting <- FALSE
-    } else {
-      str4 <- paste(str4, str4_3, sep="\n\n\n")
-    }
-  }
-  cat(paste(str3, str4, sep="\n\n\n"))
-}
-
 decision_tree <- function(cp=0.01, minsplit=20, maxdepth=30) {
   
   # Create the fitted model
@@ -57,27 +35,21 @@ decision_tree <- function(cp=0.01, minsplit=20, maxdepth=30) {
   # summary(short_tree)
 }
 
-run_model <- function(gs, train_features, train_labels, test_features, test_labels, method) {
-  
-  f2_summary <- function(data, lev=NULL, model=NULL) {
-    out <- fScore(actual=as.integer(data$obs) - 1, predicted=as.integer(data$pred) - 1, beta=2)
-    # out <- fScore(actual=data$obs, predicted=data$pred, beta=2)
-    names(out) <- "f2"
-    out
-  }
-  
-  # Use k-fold cross validation to evaluate the models
-  # and the appropriate summary function for the metric (f2)
-  ctrl <- trainControl(method = "cv", number = k_fold,
-                       summaryFunction = f2_summary,
-                       sampling = sampling_method)
+f2_summary <- function(data, lev=NULL, model=NULL) {
+  out <- fScore(actual=as.integer(data$obs) - 1, predicted=as.integer(data$pred) - 1, beta=2)
+  # out <- fScore(actual=data$obs, predicted=data$pred, beta=2)
+  names(out) <- "f2"
+  out
+}
+
+run_model <- function(gs, train_features, train_labels, test_features, test_labels, method, control, metric="f2") {
   
   # Create the models
-  results <- train(train_features, train_labels[, 1], method = method,
-        trControl = ctrl,
+  results <- train(train_features, train_labels, method = method,
+        trControl = control,
         # preProcess = c("center", "scale"),
         tuneGrid=gs,
-        metric="f2"
+        metric=metric
   )
   optimal_model <- results$finalModel
   # print("Finished model, now predicting")
@@ -88,8 +60,9 @@ run_model <- function(gs, train_features, train_labels, test_features, test_labe
   grid_results <- results$results
   grid_results <- grid_results %>% arrange(desc(f2))
   f2 <- grid_results$f2[1]
-  conf_matrix <- confusionMatrix(data=preds, reference=test_labels, positive="1")
+  conf_matrix <- caret::confusionMatrix(data=preds, reference=test_labels, positive="1")
   
+  # preds
   list("best_fit" = optimal_model,
        "preds" = preds,
        "grid" = grid_results,

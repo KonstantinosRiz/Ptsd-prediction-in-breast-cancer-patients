@@ -11,6 +11,7 @@
 # install.packages("caret")
 # install.packages("themis")
 # install.packages("randomForest")
+install.packages("sos")
 
 library(smotefamily)
 library(dplyr)
@@ -24,6 +25,7 @@ library(themis)
 library(ranger)
 library(randomForest)
 library(mice)
+library(sos)
 # library(corrplot)
 
 ####  Initializing and loading the preprocessed data  ####
@@ -34,7 +36,7 @@ setwd(my_path)
 # Relative path
 clean_data_folder <- r"{..\dataset\preprocessed_results}"
 data_file <- r"{\M6_1.RData}"
-label_name <- "M6_ptsd"
+# label_name <- "M6_ptsd"
 data_path <- paste(clean_data_folder, data_file, sep="")
 
 # Load the clean dataset which includes
@@ -50,23 +52,24 @@ load(data_path)
 source("models_config.R")
 source("models_aux.R")
 
-print_comments(preprocessing_comments)
+# Print the preprocessing comments
+cat(paste(preprocessing_comments, collapse="\n\n"))
 
-train_labels <- data.frame(train_labels)
-names(train_labels) <- label_name
-
-# Create an imputed version of the test features to use it in models that don't
-# support missing values
-
-# for (i in 1:nrow(test_features)) {
-#   ext_train_features <- 
-# }
 
 ####  Find the optimal model for every imputed dataset  ####
 
 # for (i in 1:as.integer(config_list["number_of_imputed_datasets"]) {
 
-  train <- cbind(final_train_features[[1]], train_labels)
+  # Split the dataset into train/test
+  train_features <- final_features[[1]][train_indices, ]
+  test_features <- final_features[[1]][-train_indices, ]
+  
+  train_labels <- new_final_label[train_indices]
+  test_labels <- new_final_label[-train_indices]
+  
+  # train_labels <- data.frame(train_labels)
+  # names(train_labels) <- label_name
+
 
   ####  Models  ####
   
@@ -77,21 +80,33 @@ names(train_labels) <- label_name
 
   gs <- data.frame(cp = c(0.001, 0.005, 0.01, 0.05, 0.1))
   
+  # Use k-fold cross validation to evaluate the models
+  # and the appropriate summary function for the metric (f2)
+  ctrl <- trainControl(method = "cv", number = k_fold,
+                       summaryFunction = f2_summary,
+                       sampling = sampling_method)
+  
   set.seed(1)
-  dt_results <- run_model(gs, final_train_features[[1]], train_labels, test_features, test_labels, method="rpart")
+  dt_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rpart", ctrl)
   
   dt_results$conf_matrix
-  dt_results$f2
+  dt_results$grid
   
   ## Random forest
   
-  default <- round(sqrt(ncol(final_train_features[[1]])))
-  gs <- list(mtry = c(default - 10, default - 5, default, default + 5, default + 10, default + 20),
-                   splitrule = c("gini", "extratrees","hellinger"),
-                   min.node.size = c(1, 3, 5, 7)) %>% cross_df()
-  
+  default <- round(sqrt(ncol(train_features)))
   gs <- data.frame(mtry = c(default - 10, default - 5, default, default + 5, default + 10, default + 20))
   
   set.seed(1)
-  rf_results <- run_model(gs, final_train_features[[1]], train_labels, test_features, test_labels, method="rf")
+  rf_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rf", ctrl)
+  
+  # gs <- list(mtry = c(default - 10, default - 5, default, default + 5, default + 10, default + 20),
+  #            splitrule = c("gini", "extratrees","hellinger"),
+  #            min.node.size = c(1, 3, 5, 7)) %>% cross_df()
+  # set.seed(1)
+  # rf_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="ranger", ctrl)
+  
+  rf_results$conf_matrix
+  rf_results$grid
+  
   
