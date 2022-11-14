@@ -36,6 +36,7 @@ decision_tree <- function(cp=0.01, minsplit=20, maxdepth=30) {
 }
 
 f2_summary <- function(data, lev=NULL, model=NULL) {
+  # out <- 0.42
   out <- fScore(actual=as.integer(data$obs) - 1, predicted=as.integer(data$pred) - 1, beta=2)
   # out <- fScore(actual=data$obs, predicted=data$pred, beta=2)
   names(out) <- "f2"
@@ -47,7 +48,7 @@ run_model <- function(gs, train_features, train_labels, test_features, test_labe
   # Create the models
   results <- train(train_features, train_labels, method = method,
         trControl = control,
-        # preProcess = c("center", "scale"),
+        preProcess = c("center", "scale", "pca"),
         tuneGrid=gs,
         metric=metric
   )
@@ -71,12 +72,6 @@ run_model <- function(gs, train_features, train_labels, test_features, test_labe
        "conf_matrix" = conf_matrix)
 }
 
-f2_summary <- function(data, lev=NULL, model=NULL) {
-  out <- fScore(actual=as.integer(data$obs) - 1, predicted=as.integer(data$pred) - 1, beta=2)
-  # out <- fScore(actual=data$obs, predicted=data$pred, beta=2)
-  names(out) <- "f2"
-  out
-}
 
 create_decision_tree <- function(cp, minsplit, maxdepth, train_features, train_labels, ctrl) {
   
