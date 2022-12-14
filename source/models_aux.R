@@ -48,7 +48,7 @@ run_model <- function(gs, train_features, train_labels, test_features, test_labe
   # Create the models
   results <- train(train_features, train_labels, method = method,
         trControl = control,
-        preProcess = c("center", "scale", "pca"),
+        # preProcess = c("center", "scale", "pca"),
         tuneGrid=gs,
         metric=metric
   )

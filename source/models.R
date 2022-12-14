@@ -63,7 +63,8 @@ cat(paste(preprocessing_comments, collapse="\n\n"))
 
 # for (i in 1:as.integer(config_list["number_of_imputed_datasets"]) {
 
-  # Split the dataset into train/test
+  # Split the dataset into train/test (technically the split has happened durin the proprocessing,
+  # we are just grouping together)
   train_features <- final_features[[1]][train_indices, ]
   test_features <- final_features[[1]][-train_indices, ]
   
@@ -89,7 +90,7 @@ cat(paste(preprocessing_comments, collapse="\n\n"))
                        summaryFunction = f2_summary,
                        # summaryFunction = defaultSummary,
                        # sampling = sampling_method,
-                       sampling="smote"
+                       sampling="down"
                        )
   
   set.seed(1)
@@ -115,37 +116,41 @@ cat(paste(preprocessing_comments, collapse="\n\n"))
   rf_results$conf_matrix
   rf_results$grid
   
-  train_data <- train_features
-  train_data[, new_label_name] <- train_labels
-  
-  label_formula <- as.formula(paste(new_label_name, "~.", sep=""))
-  rf_fit <- ranger(label_formula, train_data)
-  pred <- predict(rf_fit, test_features)
-  table(pred$predictions, test_labels)
+  ## Using ranger for random forest
+  # train_data <- train_features
+  # train_data[, new_label_name] <- train_labels
+  # 
+  # label_formula <- as.formula(paste(new_label_name, "~.", sep=""))
+  # rf_fit <- ranger(label_formula, train_data)
+  # pred <- predict(rf_fit, test_features)
+  # table(pred$predictions, test_labels)
   
   
   ## Support vector machines
             
-  gs <- data.frame(sigma = c(1 / ncol(train_features)),
-                   C = c(1),
-                   Weight = I(list( c("0"= 0.2, "1"=0.8), c("0"=0.1, "1"=0.9), c("0"=0.3, "1"=0.7) ))
-                   )
+  # gs <- data.frame(sigma = c(1 / ncol(train_features)),
+  #                  C = c(1),
+  #                  Weight = I(list( c("0"= 0.2, "1"=0.8), c("0"=0.1, "1"=0.9), c("0"=0.3, "1"=0.7) ))
+  #                  )
   
   gs <- expand.grid(C = c(1),
                     sigma = c(1 / ncol(train_features)),
-                    Weight = seq(0.05, 0.15, by=0.01))
+                    Weight = seq(0.5, 2, by=0.5))
   
-  # numeric_train <- train_features %>% select_if(is.numeric)
-  # numeric_test <- test_features %>% select_if(is.numeric)
   
-  ## Taken code
+  ### PCA code
+  numeric_train <- train_features %>% select_if(is.numeric)
+  numeric_test <- test_features %>% select_if(is.numeric)
+  
   my_pca <- prcomp(numeric_train, scale = TRUE,
                    center = TRUE, retx = T)
   
-  my_pca$rotation
-  dim(my_pca$x)
-  biplot(my_pca, main = "Biplot", scale = 0)
-  my_pca$sdev
+  # my_pca$rotation
+  # dim(my_pca$x)
+  # biplot(my_pca, main = "Biplot", scale = 0)
+  # my_pca$sdev
+  
+  ## Explainability of the PCA
   my_pca.var <- my_pca$sdev ^ 2
   propve <- my_pca.var / sum(my_pca.var)
   plot(propve, xlab = "principal component",
@@ -156,15 +161,24 @@ cat(paste(preprocessing_comments, collapse="\n\n"))
        xlab = "Principal Component",
        ylab = "Cumulative Proportion of Variance Explained",
        ylim = c(0, 1), type = "b")
-  which(cumsum(propve) >= 0.9)[1]
   
-  my_components <- as_tibble(my_pca$x) %>% select(PC1:PC72)
-  my_test <- as_tibble(predict(my_pca, newdata = numeric_test)) %>% select(PC1:PC72)
-  ##
+  ## Actual PCA transformation
+  components_needed <- which(cumsum(propve) >= 0.9)[1]
+  # my_components <- as_tibble(my_pca$x)
+  my_components <- my_pca$x
+  # %>% select(PC1:PC72)
+  # my_test <- as_tibble(predict(my_pca, newdata = numeric_test))
+  my_test <- predict(my_pca, newdata = numeric_test)
+  # %>% select(PC1:PC72)
+  ###
   
-  set.seed(1)
+  set.seed(42)
+  
+  # Without PCA
+  svm_results <- run_model(gs, numeric_train, train_labels, numeric_test, test_labels, method="svmRadialWeights", ctrl)
+  # Using PCA
   svm_results <- run_model(gs, my_components, train_labels, my_test, test_labels, method="svmRadialWeights", ctrl)
-  # svm_results <- run_model(gs, numeric_train, train_labels, numeric_test, test_labels, method="svmRadialWeights", ctrl))
+  # svm_results <- run_model(gs, my_components, train_labels, my_components, train_labels, method="svmRadialWeights", ctrl)
   
   svm_results$conf_matrix
   svm_results$grid
