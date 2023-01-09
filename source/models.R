@@ -63,22 +63,40 @@ cat(paste(preprocessing_comments, collapse="\n\n"))
 
 # for (i in 1:as.integer(config_list["number_of_imputed_datasets"]) {
 
-  # Split the dataset into train/test (technically the split has happened durin the proprocessing,
+  data <- final_features[[1]]
+
+  # Split the dataset into train/test (technically the split has happened during the preprocessing,
   # we are just grouping together)
-  train_features <- final_features[[1]][train_indices, ]
-  test_features <- final_features[[1]][-train_indices, ]
+  train_features <- data[train_indices, ]
+  test_features <- data[-train_indices, ]
   
   train_labels <- new_final_label[train_indices]
   test_labels <- new_final_label[-train_indices]
   
   # train_labels <- data.frame(train_labels)
   # names(train_labels) <- label_name
-
-
+  
+  # Use recursive feature elimination to reduce the number of our features even more
+  myFuncs <- rfFuncs
+  myFuncs$summary <- f2_summary
+  rfe_control <- rfeControl(functions = myFuncs,
+                            method = "repeatedcv",
+                            repeats = 5,
+                            verbose = FALSE)
+  
+  rfe_profile <- rfe(train_features, train_labels, 
+                     sizes = c(seq(10, 50, 10), 100, 150, ncol(data)),
+                     rfeControl = rfe_control,
+                     metric = "f2")
+  
+  train_reduced <- train_features[, rfe_profile$optVariables]
+  test_reduced <- test_features[, rfe_profile$optVariables]
+  
   ####  Models  ####
   
   # Run the wanted model using all the combinations of the hyperparameters in the
   # respective grid, find the optimal model and evaluate it on the test set.
+  # We try both the full-featured dataset and the reduced one
 
   ## Decision tree
 
@@ -93,94 +111,71 @@ cat(paste(preprocessing_comments, collapse="\n\n"))
                        sampling="down"
                        )
   
+  # All features
   set.seed(1)
   dt_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rpart", ctrl)
-  
   dt_results$conf_matrix
-  dt_results$grid
+  dt_results$f2
+  
+  # Reduced features
+  set.seed(1)
+  dt_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rpart", ctrl)
+  dt_reduced$conf_matrix
+  dt_reduced$f2
+  
   
   ## Random forest
   
   default <- round(sqrt(ncol(train_features)))
   gs <- data.frame(mtry = c(default - 10, default - 5, default, default + 5, default + 10, default + 20))
   
+  # All features
   set.seed(1)
   rf_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rf", ctrl)
-  
-  # gs <- list(mtry = c(default - 10, default - 5, default, default + 5, default + 10, default + 20),
-  #            splitrule = c("gini", "extratrees","hellinger"),
-  #            min.node.size = c(1, 3, 5, 7)) %>% cross_df()
-  # set.seed(1)
-  # rf_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="ranger", ctrl)
-  
   rf_results$conf_matrix
-  rf_results$grid
+  rf_results$f2
   
-  ## Using ranger for random forest
-  # train_data <- train_features
-  # train_data[, new_label_name] <- train_labels
-  # 
-  # label_formula <- as.formula(paste(new_label_name, "~.", sep=""))
-  # rf_fit <- ranger(label_formula, train_data)
-  # pred <- predict(rf_fit, test_features)
-  # table(pred$predictions, test_labels)
+  # Reduced features
+  set.seed(1)
+  rf_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rf", ctrl)
+  rf_reduced$conf_matrix
+  rf_reduced$f2
   
   
   ## Support vector machines
             
-  # gs <- data.frame(sigma = c(1 / ncol(train_features)),
-  #                  C = c(1),
-  #                  Weight = I(list( c("0"= 0.2, "1"=0.8), c("0"=0.1, "1"=0.9), c("0"=0.3, "1"=0.7) ))
-  #                  )
-  
   gs <- expand.grid(C = c(1),
                     sigma = c(1 / ncol(train_features)),
                     Weight = seq(0.5, 2, by=0.5))
   
   
-  ### PCA code
   numeric_train <- train_features %>% select_if(is.numeric)
   numeric_test <- test_features %>% select_if(is.numeric)
   
-  my_pca <- prcomp(numeric_train, scale = TRUE,
-                   center = TRUE, retx = T)
+  # Use recursive feature elimination to reduce the number of our features even more
+  rfe_control <- rfeControl(functions = myFuncs,
+                            method = "repeatedcv",
+                            repeats = 5,
+                            verbose = FALSE)
   
-  # my_pca$rotation
-  # dim(my_pca$x)
-  # biplot(my_pca, main = "Biplot", scale = 0)
-  # my_pca$sdev
+  rfe_profile <- rfe(numeric_train, train_labels, 
+                     sizes = c(seq(10, 50, 10), 100, 150, ncol(data)),
+                     rfeControl = rfe_control,
+                     metric = "f2")
   
-  ## Explainability of the PCA
-  my_pca.var <- my_pca$sdev ^ 2
-  propve <- my_pca.var / sum(my_pca.var)
-  plot(propve, xlab = "principal component",
-       ylab = "Proportion of Variance Explained",
-       ylim = c(0, 1), type = "b",
-       main = "Scree Plot")
-  plot(cumsum(propve),
-       xlab = "Principal Component",
-       ylab = "Cumulative Proportion of Variance Explained",
-       ylim = c(0, 1), type = "b")
+  numeric_train_reduced <- numeric_train[, rfe_profile$optVariables]
+  numeric_test_reduced <- numeric_test[, rfe_profile$optVariables]
   
-  ## Actual PCA transformation
-  components_needed <- which(cumsum(propve) >= 0.9)[1]
-  # my_components <- as_tibble(my_pca$x)
-  my_components <- my_pca$x
-  # %>% select(PC1:PC72)
-  # my_test <- as_tibble(predict(my_pca, newdata = numeric_test))
-  my_test <- predict(my_pca, newdata = numeric_test)
-  # %>% select(PC1:PC72)
-  ###
-  
-  set.seed(42)
-  
-  # Without PCA
+  # All features
+  set.seed(1)
   svm_results <- run_model(gs, numeric_train, train_labels, numeric_test, test_labels, method="svmRadialWeights", ctrl)
-  # Using PCA
-  svm_results <- run_model(gs, my_components, train_labels, my_test, test_labels, method="svmRadialWeights", ctrl)
-  # svm_results <- run_model(gs, my_components, train_labels, my_components, train_labels, method="svmRadialWeights", ctrl)
-  
   svm_results$conf_matrix
-  svm_results$grid
+  svm_results$f2
+  
+  # Reduced features
+  set.seed(1)
+  svm_reduced <- run_model(gs, numeric_train_reduced, train_labels, numeric_test_reduced, test_labels, method="svmRadialWeights", ctrl)
+  svm_reduced$conf_matrix
+  svm_reduced$f2
   
   

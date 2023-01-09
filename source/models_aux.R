@@ -36,7 +36,6 @@ decision_tree <- function(cp=0.01, minsplit=20, maxdepth=30) {
 }
 
 f2_summary <- function(data, lev=NULL, model=NULL) {
-  # out <- 0.42
   out <- fScore(actual=as.integer(data$obs) - 1, predicted=as.integer(data$pred) - 1, beta=2)
   # out <- fScore(actual=data$obs, predicted=data$pred, beta=2)
   names(out) <- "f2"
