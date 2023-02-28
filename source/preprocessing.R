@@ -124,7 +124,7 @@ preprocessing_comments <- append(preprocessing_comments, comment_3)
 ####  4 Split the dataset into train/test ####
 
 # Threshold the label
-new_final_label <- as.factor(as.integer(final_label > ptsd_threshold))
+new_final_label <- as.factor(as.integer(final_label >= ptsd_threshold))
 new_label_name <- paste(month_label, "_ptsd", sep="")
 
 train_indices <- createDataPartition(new_final_label, p=train_size, list=FALSE)
