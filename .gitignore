@@ -5,3 +5,11 @@
 # Session Data files
 **/.RData
 **/.RDataTmp
+
+*.html
+dataset/
+useful/
+*.docx
+*.xlsx
+*.pdf
+*.pptx
