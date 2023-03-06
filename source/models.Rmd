@@ -9,6 +9,7 @@ This file is used for testing the development of the machine learning models
 
 ```{r, imports, echo=FALSE, include=FALSE}
 library(smotefamily)
+library(plyr)
 library(dplyr)
 library(ROSE)
 library(rpart)
@@ -22,15 +23,17 @@ library(randomForest)
 library(mice)
 library(sos)
 library(kernlab)
+library(ramify)
 ```
 
 Initializing and loading the preprocessed, clean dataset which includes:
-  1. final_train_features: list of m datasets created during preprocessing (containing only the features)
-  2. train_labels: the labels of the train datasets (same for all of them)
-  3. test_features: dataframe with the features to be used for testing 
-  4. test_labels: the labels to be used for evaluating the models
-  5. preprocessing_comments: detailed comments about the preprocessing procedure Use function print_comments to pretty print them
-  6. config_list: named list containing the parameters used to preprocess the data-set
+
+1. final_train_features: list of m datasets created during preprocessing (containing only the features)
+2. train_labels: the labels of the train datasets (same for all of them)
+3. test_features: dataframe with the features to be used for testing 
+4. test_labels: the labels to be used for evaluating the models
+5. preprocessing_comments: detailed comments about the preprocessing procedure Use function print_comments to pretty print them
+6. config_list: named list containing the parameters used to preprocess the data-set
 
 ```{r, load_data, echo=TRUE}
 
@@ -45,15 +48,21 @@ data_path <- paste(clean_data_folder, data_file, sep="")
 
 load(data_path)
 
-source("models_config.R")
-source("models_aux.R")
-
 # Print the preprocessing comments
 cat(paste(preprocessing_comments, collapse="\n\n"))
 
 ```
 
+```{r, load_code, echo=True}
+
+source("models_config.R")
+source("models_aux.R")
+
+```
+
+
 ```{r, split, echo=TRUE}
+
 # Find the optimal model for every imputed dataset
 # for (i in 1:as.integer(config_list["number_of_imputed_datasets"]) {
 
@@ -69,11 +78,13 @@ test_labels <- new_final_label[-train_indices]
 
 # train_labels <- data.frame(train_labels)
 # names(train_labels) <- label_name
+
 ```
 
 Use recursive feature elimination to reduce the number of our features even more
 
 ```{r, rfe, echo=TRUE}
+
 myFuncs <- rfFuncs
 myFuncs$summary <- f2_summary
 rfe_control <- rfeControl(functions = myFuncs,
@@ -88,6 +99,7 @@ rfe_profile <- rfe(train_features, train_labels,
 
 train_reduced <- train_features[, rfe_profile$optVariables]
 test_reduced <- test_features[, rfe_profile$optVariables]
+
 ```
 
 # Models
@@ -97,15 +109,18 @@ Run the wanted model using all the combinations of the hyperparameters in the re
 ## Decision Tree
 
 ```{r, dt, echo=TRUE}
+
 gs <- data.frame(cp = c(0.001, 0.005, 0.01, 0.05, 0.1))
+# gs <- data.frame(cp = c(0.001))
 
 # Use k-fold cross validation to evaluate the models
 # and the appropriate summary function for the metric (f2)
-ctrl <- trainControl(method = "cv", number = k_fold,
+ctrl <- trainControl(method = "cv", number=k_fold,
                      summaryFunction = f2_summary,
                      # summaryFunction = defaultSummary,
                      # sampling = sampling_method,
-                     sampling="down"
+                     sampling="down",
+                     verboseIter=TRUE
 )
 
 # All features
@@ -113,17 +128,23 @@ set.seed(1)
 dt_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rpart", ctrl)
 dt_results$conf_matrix
 dt_results$f2
+dt_results$grid
+
 
 # Reduced features
 set.seed(1)
 dt_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rpart", ctrl)
 dt_reduced$conf_matrix
 dt_reduced$f2
+dt_reduced$grid
+
+
 ```
 
 ## Random Forest
 
 ```{r, rf, echo=TRUE}
+
 default <- round(sqrt(ncol(train_features)))
 gs <- data.frame(mtry = c(default - 10, default - 5, default, default + 5, default + 10, default + 20))
 
@@ -133,21 +154,22 @@ rf_results <- run_model(gs, train_features, train_labels, test_features, test_la
 rf_results$conf_matrix
 rf_results$f2
 
+# Appropriate upper limit
+default <- round(sqrt(ncol(train_reduced)))
+gs <- data.frame(mtry = c(default, default + 2, default + 4, default + 6))
+
 # Reduced features
 set.seed(1)
 rf_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rf", ctrl)
 rf_reduced$conf_matrix
 rf_reduced$f2
+
 ```
 
 ## Support vector machines
 
-```{r, SVM, echo=TRUE}
-gs <- expand.grid(C = c(1),
-                  sigma = c(1 / ncol(train_features)),
-                  Weight = seq(0.5, 2, by=0.5))
-
-
+```{r, echo=True}
+#### TODO: one-hot-encode factors instead of throwing them away
 numeric_train <- train_features %>% select_if(is.numeric)
 numeric_test <- test_features %>% select_if(is.numeric)
 
@@ -165,15 +187,75 @@ rfe_profile <- rfe(numeric_train, train_labels,
 numeric_train_reduced <- numeric_train[, rfe_profile$optVariables]
 numeric_test_reduced <- numeric_test[, rfe_profile$optVariables]
 
+```
+
+
+```{r, SVM, echo=TRUE}
+
+gs <- expand.grid(C = c(1),
+                  sigma = c(1 / ncol(numeric_train)),
+                  Weight = seq(0.5, 2, by=0.5))
+
 # All features
 set.seed(1)
 svm_results <- run_model(gs, numeric_train, train_labels, numeric_test, test_labels, method="svmRadialWeights", ctrl)
 svm_results$conf_matrix
 svm_results$f2
 
+gs <- expand.grid(C = c(1),
+                  sigma = c(1 / ncol(numeric_train_reduced)),
+                  Weight = seq(0.5, 2, by=0.5))
+
 # Reduced features
 set.seed(1)
 svm_reduced <- run_model(gs, numeric_train_reduced, train_labels, numeric_test_reduced, test_labels, method="svmRadialWeights", ctrl)
 svm_reduced$conf_matrix
 svm_reduced$f2
+
 ```
+
+## Adaboost
+
+```{r, adaboost, echo=True}
+
+gs <- expand.grid(mfinal = c(10, 20, 50, 100, 150),
+                  maxdepth = c(1),
+                  coeflearn = c("Breiman"))
+
+set.seed(1)
+adaboost_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="AdaBoost.M1", ctrl)
+adaboost_results$conf_matrix
+adaboost_results$f2
+
+set.seed(1)
+adaboost_reduced <- run_model(gs, train_features, train_labels, test_features, test_labels, method="AdaBoost.M1", ctrl)
+adaboost_reduced$conf_matrix
+adaboost_reduced$f2
+
+```
+
+## Gradient boost
+
+```{r}
+
+gs <- expand.grid(nrounds = c(10, 20, 50, 100),
+                  max_depth = 6,
+                  eta = 0.3,
+                  gamma = 0,
+                  colsample_bytree = 1,
+                  min_child_weight = 1,
+                  subsample = 1
+                  )
+
+set.seed(1)
+xgboost <- run_model(gs, train_features, train_labels, test_features, test_labels, method="xgbTree", ctrl)
+xgboost_results$conf_matrix
+xgboost_results$f2
+
+set.seed(1)
+xgboost_reduced <- run_model(gs, train_features, train_labels, test_features, test_labels, method="xgbTree", ctrl)
+xgboost_reduced$conf_matrix
+xgboost_reduced$f2
+
+```
+

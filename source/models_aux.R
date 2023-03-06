@@ -37,7 +37,6 @@ decision_tree <- function(cp=0.01, minsplit=20, maxdepth=30) {
 
 f2_summary <- function(data, lev=NULL, model=NULL) {
   out <- fScore(actual=as.integer(data$obs) - 1, predicted=as.integer(data$pred) - 1, beta=2)
-  # out <- fScore(actual=data$obs, predicted=data$pred, beta=2)
   names(out) <- "f2"
   out
 }
@@ -51,17 +50,20 @@ run_model <- function(gs, train_features, train_labels, test_features, test_labe
         tuneGrid=gs,
         metric=metric
   )
+
   optimal_model <- results$finalModel
-  # print("Finished model, now predicting")
-  
   preds <- predict(results, test_features)
+  # preds <- predict(optimal_model, test_features)
+  # preds <- as.factor(argmax(preds, rows=TRUE) - 1)
   
   acc <- compute_accuracy(preds, test_labels)
+  f2 <- fScore(actual=as.integer(test_labels) - 1, predicted=as.integer(preds) - 1, beta=2)
+  
   grid_results <- results$results
   grid_results <- grid_results %>% arrange(desc(f2))
-  f2 <- grid_results$f2[1]
+
   conf_matrix <- caret::confusionMatrix(data=preds, reference=test_labels, positive="1")
-  
+
   # preds
   list("best_fit" = optimal_model,
        "preds" = preds,
