@@ -6,7 +6,7 @@
 **/.RData
 **/.RDataTmp
 
-*.html
+# *.html
 dataset/
 useful/
 *.docx

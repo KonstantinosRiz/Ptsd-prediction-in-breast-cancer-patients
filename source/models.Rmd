@@ -29,12 +29,12 @@ library(Matrix)
 
 Initializing and loading the preprocessed, clean dataset which includes:
 
-1. final_train_features: list of m datasets created during preprocessing (containing only the features)
-2. train_labels: the labels of the train datasets (same for all of them)
-3. test_features: dataframe with the features to be used for testing 
-4. test_labels: the labels to be used for evaluating the models
-5. preprocessing_comments: detailed comments about the preprocessing procedure Use function print_comments to pretty print them
-6. config_list: named list containing the parameters used to preprocess the data-set
+1.  final_train_features: list of m datasets created during preprocessing (containing only the features)
+2.  train_labels: the labels of the train datasets (same for all of them)
+3.  test_features: dataframe with the features to be used for testing
+4.  test_labels: the labels to be used for evaluating the models
+5.  preprocessing_comments: detailed comments about the preprocessing procedure Use function print_comments to pretty print them
+6.  config_list: named list containing the parameters used to preprocess the data-set
 
 ```{r, load_data, echo=TRUE}
 
@@ -54,13 +54,12 @@ cat(paste(preprocessing_comments, collapse="\n\n"))
 
 ```
 
-```{r, load_code, echo=True}
+```{r, load_code, echo=TRUE}
 
 source("models_config.R")
 source("models_aux.R")
 
 ```
-
 
 ```{r, split, echo=TRUE}
 
@@ -112,7 +111,7 @@ test_reduced <- test_features[, rfe$optVariables]
 ## Rfe on one_hot_encoded features
 
 rfe_one_hot <- rfe(one_hot_train_features, train_labels, 
-                   sizes = c(seq(10, 50, 10), 100, 150, ncol(data)),
+                   sizes = c(2, 5, seq(10, 20, 2), seq(20, 50, 10), 100, 150, ncol(data)),
                    rfeControl = rfe_control,
                    metric = "f2")
 one_hot_train_reduced <- one_hot_train_features[, rfe_one_hot$optVariables]
@@ -133,7 +132,7 @@ numeric_test_reduced <- numeric_test_features[, rfe_numeric$optVariables]
 
 Run the wanted model using all the combinations of the hyperparameters in the respective grid, find the optimal model and evaluate it on the test set. We try both the full-featured dataset and the reduced one
 
-```{r}
+```{r, train_control, echo=TRUE}
 
 # Use k-fold cross validation to evaluate the models
 # and the appropriate summary function for the metric (f2)
@@ -147,7 +146,6 @@ ctrl <- trainControl(method = "cv", number=k_fold,
 
 ```
 
-
 ## Decision Tree
 
 ```{r, dt, echo=TRUE}
@@ -160,7 +158,6 @@ set.seed(1)
 dt_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rpart", ctrl)
 dt_results$conf_matrix
 dt_results$f2
-dt_results$grid
 
 
 # Reduced features
@@ -168,8 +165,18 @@ set.seed(1)
 dt_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rpart", ctrl)
 dt_reduced$conf_matrix
 dt_reduced$f2
-dt_reduced$grid
 
+# One_hot features
+set.seed(1)
+dt_one_hot <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="rpart", ctrl)
+dt_one_hot$conf_matrix
+dt_one_hot$f2
+
+# One_hot reduced features
+set.seed(1)
+dt_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="rpart", ctrl)
+dt_one_hot_reduced$conf_matrix
+dt_one_hot_reduced$f2
 
 ```
 
@@ -196,82 +203,101 @@ rf_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labe
 rf_reduced$conf_matrix
 rf_reduced$f2
 
+# One_hot features
+set.seed(1)
+rf_one_hot <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="rf", ctrl)
+rf_one_hot$conf_matrix
+rf_one_hot$f2
+
+# One_hot reduced features
+set.seed(1)
+rf_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="rf", ctrl)
+rf_one_hot_reduced$conf_matrix
+rf_one_hot_reduced$f2
+
 ```
 
 ## Support vector machines
 
-# ```{r}
-# result <-  ! colnames(one_hot_train_features) %in% colnames(one_hot_train_reduced)
-# result <- one_hot_train_features[, result]
-# dim(result)
-# ```
-
-
 ```{r, SVM, echo=TRUE}
 
 # One-hot encoded features
+# gs <- expand.grid(C = c(1),
+#                   sigma = c(1 / ncol(one_hot_train_features)),
+#                   Weight = seq(0.5, 2, by=0.5))
+# set.seed(1)
+# svm_one_hot <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="svmRadialWeights", ctrl)
+# svm_one_hot$conf_matrix
+# svm_one_hot$f2
+
+
+# One-hot reduced features
 gs <- expand.grid(C = c(1),
-                  sigma = c(1 / ncol(one_hot_train_features)),
+                  sigma = c(1 / ncol(one_hot_train_reduced)),
                   Weight = seq(0.5, 2, by=0.5))
 set.seed(1)
-svm_one_hot <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="svmRadialWeights", ctrl)
-svm_one_hot$conf_matrix
-svm_one_hot$f2
+svm_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="svmRadialWeights", ctrl)
+svm_one_hot_reduced$conf_matrix
+svm_one_hot_reduced$f2
 
 
-# # One-hot reduced features
-# gs <- expand.grid(C = c(1),
-#                   sigma = c(1 / ncol(one_hot_train_reduced)),
-#                   Weight = seq(0.5, 2, by=0.5))
-# set.seed(1)
-# svm_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="svmRadialWeights", ctrl)
-# svm_one_hot_reduced$conf_matrix
-# svm_one_hot_reduced$f2
-# 
-# 
-# # Numeric features
-# gs <- expand.grid(C = c(1),
-#                   sigma = c(1 / ncol(numeric_train_features)),
-#                   Weight = seq(0.5, 2, by=0.5))
-# set.seed(1)
-# svm_numeric <- run_model(gs, numeric_train_features, train_labels, numeric_test_features, test_labels, method="svmRadialWeights", ctrl)
-# svm_numeric$conf_matrix
-# svm_numeric$f2
-# 
-# # Numeric reduced features
-# gs <- expand.grid(C = c(1),
-#                   sigma = c(1 / ncol(numeric_train_reduced)),
-#                   Weight = seq(0.5, 2, by=0.5))
-# set.seed(1)
-# svm_numeric_reduced <- run_model(gs, numeric_train_reduced, train_labels, numeric_test_reduced, test_labels, method="svmRadialWeights", ctrl)
-# svm_numeric_reduced$conf_matrix
-# svm_numeric_reduced$f2
+# Numeric features
+gs <- expand.grid(C = c(1),
+                  sigma = c(1 / ncol(numeric_train_features)),
+                  Weight = seq(0.5, 2, by=0.5))
+set.seed(1)
+svm_numeric <- run_model(gs, numeric_train_features, train_labels, numeric_test_features, test_labels, method="svmRadialWeights", ctrl)
+svm_numeric$conf_matrix
+svm_numeric$f2
+
+# Numeric reduced features
+gs <- expand.grid(C = c(1),
+                  sigma = c(1 / ncol(numeric_train_reduced)),
+                  Weight = seq(0.5, 2, by=0.5))
+set.seed(1)
+svm_numeric_reduced <- run_model(gs, numeric_train_reduced, train_labels, numeric_test_reduced, test_labels, method="svmRadialWeights", ctrl)
+svm_numeric_reduced$conf_matrix
+svm_numeric_reduced$f2
 
 ```
 
 ## Adaboost
 
-```{r, adaboost, echo=True}
+```{r, adaboost, echo=TRUE}
 
 gs <- expand.grid(mfinal = c(10, 20, 50, 100, 150),
-                  maxdepth = c(1),
+                  maxdepth = c(1, 2),
                   coeflearn = c("Breiman"))
 
+# All features
 set.seed(1)
 adaboost_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="AdaBoost.M1", ctrl)
 adaboost_results$conf_matrix
 adaboost_results$f2
 
+# All features reduced
 set.seed(1)
-adaboost_reduced <- run_model(gs, train_features, train_labels, test_features, test_labels, method="AdaBoost.M1", ctrl)
+adaboost_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="AdaBoost.M1", ctrl)
 adaboost_reduced$conf_matrix
 adaboost_reduced$f2
+
+# One_hot features
+set.seed(1)
+adaboost_one_hot <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="AdaBoost.M1", ctrl)
+adaboost_one_hot$conf_matrix
+adaboost_one_hot$f2
+
+# One_hot reduced features
+set.seed(1)
+adaboost_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="AdaBoost.M1", ctrl)
+adaboost_one_hot_reduced$conf_matrix
+adaboost_one_hot_reduced$f2
 
 ```
 
 ## Gradient boost
 
-```{r}
+```{r, gradient_boost, echo=TRUE}
 
 gs <- expand.grid(nrounds = c(10, 20, 50, 100),
                   max_depth = 6,
@@ -282,40 +308,28 @@ gs <- expand.grid(nrounds = c(10, 20, 50, 100),
                   subsample = 1
                   )
 
-# One-hot encoded features
+# One_hot features
 set.seed(1)
-xgboost_results <- run_model(gs, one_hot_train, train_labels, one_hot_test, test_labels, method="xgbTree", ctrl)
-xgboost_results$conf_matrix
-xgboost_results$f2
+xgboost_one_hot <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="xgbTree", ctrl)
+xgboost_one_hot$conf_matrix
+xgboost_one_hot$f2
 
+# One_hot reduced features
 set.seed(1)
-xgboost_results <- run_model(gs, numeric_train, train_labels, numeric_test, test_labels, method="xgbTree", ctrl)
-xgboost_results$conf_matrix
-xgboost_results$f2
+xgboost_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="xgbTree", ctrl)
+xgboost_one_hot_reduced$conf_matrix
+xgboost_one_hot_reduced$f2
 
-# set.seed(1)
-# xgboost_reduced <- run_model(gs, numeric_train_reduced, train_labels, numeric_test_reduced, test_labels, method="xgbTree", ctrl)
-# xgboost_reduced$conf_matrix
-# xgboost_reduced$f2
+# Numeric features
+set.seed(1)
+xgboost_numeric <- run_model(gs, numeric_train_features, train_labels, numeric_test_features, test_labels, method="xgbTree", ctrl)
+xgboost_numeric$conf_matrix
+xgboost_numeric$f2
 
-```
-```{r}
-
-one_hot_train <- model.matrix( ~ education_2 - 1, train_features)
-temp <- one_hot_train[, 1]
-typeof(one_hot_train[, 1])
-class(one_hot_train[, 1])
-
-```
-```{r}
-
-sparse_matrix <- model.matrix(~ . - 1, data = train_features)
-df <- as.data.frame(sparse_matrix)
-# X_train_dmat = xgb.DMatrix(sparse_matrix, label = df$label)
-
-head(df)
-
-output_vector = new_final_label == TRUE
+# Numeric reduced features
+set.seed(1)
+xgboost_numeric_reduced <- run_model(gs, numeric_train_reduced, train_labels, numeric_test_reduced, test_labels, method="xgbTree", ctrl)
+xgboost_numeric_reduced$conf_matrix
+xgboost_numeric_reduced$f2
 
 ```
-
