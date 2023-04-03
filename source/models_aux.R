@@ -41,7 +41,35 @@ f2_summary <- function(data, lev=NULL, model=NULL) {
   out
 }
 
+many_stats_summary <-function(data, lev = levels(data$obs), model = NULL) {
+    c(
+      f2_summary(data = data, lev = levels(data$obs), model),
+      twoClassSummary(data = data, lev = levels(data$obs), model),
+      prSummary(data = data, lev = levels(data$obs), model),
+      mnLogLoss(data = data, lev = levels(data$obs), model),
+      defaultSummary(data = data, lev = levels(data$obs), model)
+    )
+}
+
+rf_fit_down <- function(x, y, first, last, ...){
+  # Function that downsamples the data before running rfe
+  loadNamespace("randomForest")
+  
+  df_down <- caret::downSample(x, y)
+  
+  randomForest::randomForest(
+    dplyr::select(df_down, -Class),
+    df_down$Class,
+    importance = (first | last),
+    ...)
+}
+
+myPickSizeTolerance <- function(x, metric, tol=1.5, maximize) {
+  pickSizeTolerance(x, metric, tol = rfe_tol, maximize = maximize)
+}
+
 run_model <- function(gs, train_features, train_labels, test_features, test_labels, method, control, metric="f2") {
+  # This functions runs all the models, according to the inputs
   
   # Create the models
   results <- train(train_features, train_labels, method = method,

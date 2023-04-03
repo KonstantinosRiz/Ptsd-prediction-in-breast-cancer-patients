@@ -1,0 +1,9 @@
+1. Remove similar (medically) features
+2. Run the models and record the results
+
+
+Later:
+
+1. Run rfe many times and keep the features that repeat at about 50% of the runs
+2. Many runs that check the randomness
+3. Performance report

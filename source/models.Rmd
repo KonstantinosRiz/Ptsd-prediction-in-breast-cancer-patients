@@ -5,8 +5,6 @@ output:
     df_print: paged
 ---
 
-This file is used for testing the development of the machine learning models
-
 ```{r, imports, echo=FALSE, include=FALSE}
 library(smotefamily)
 library(plyr)
@@ -25,6 +23,7 @@ library(sos)
 library(kernlab)
 library(ramify)
 library(Matrix)
+library(MLmetrics)
 ```
 
 Initializing and loading the preprocessed, clean dataset which includes:
@@ -78,53 +77,80 @@ test_labels <- new_final_label[-train_indices]
 
 one_hot_train_features <- model.matrix(~ . - 1, data = train_features)
 one_hot_test_features <- model.matrix(~ . - 1, data = test_features)
+# yInd <- data.frame(model.matrix.lm(Depression_HADS_clusters ~ ., data = ytrain[,-1], na.action = "na.pass"))[,-1]
 
 numeric_train_features <- train_features %>% select_if(is.numeric)
 numeric_test_features <- test_features %>% select_if(is.numeric)
 
-# train_labels <- data.frame(train_labels)
-# names(train_labels) <- label_name
-
 ```
 
-Use recursive feature elimination to reduce the number of our features even more
+# Feature reduction using RFE
 
 ```{r, rfe, echo=TRUE}
 
 myFuncs <- rfFuncs
-myFuncs$summary <- f2_summary
+myFuncs$summary <- many_stats_summary
+myFuncs$selectSize <- myPickSizeTolerance
+if (rfe_sampling_method == "down") {
+  myFuncs$fit <- rf_fit_down
+}
 rfe_control <- rfeControl(functions = myFuncs,
                           method = "repeatedcv",
                           repeats = 5,
-                          verbose = FALSE)
+                          verbose = FALSE,
+                          returnResamp = "all")
 
 
 ## Rfe on initial features
 
-rfe <- rfe(train_features, train_labels, 
-                   sizes = c(seq(10, 50, 10), 100, 150, ncol(data)),
-                   rfeControl = rfe_control,
-                   metric = "f2")
+# set.seed(1)
+rfe <- rfe(train_features, train_labels,
+           sizes = rfe_sizes,
+           rfeControl = rfe_control,
+           metric = metric,
+           ntree = rfe_trees)
 train_reduced <- train_features[, rfe$optVariables]
 test_reduced <- test_features[, rfe$optVariables]
 
 ## Rfe on one_hot_encoded features
 
-rfe_one_hot <- rfe(one_hot_train_features, train_labels, 
-                   sizes = c(2, 5, seq(10, 20, 2), seq(20, 50, 10), 100, 150, ncol(data)),
+rfe_one_hot <- rfe(one_hot_train_features, train_labels,
+                   sizes = rfe_sizes,
                    rfeControl = rfe_control,
-                   metric = "f2")
+                   metric = metric,
+                   ntree = rfe_trees)
 one_hot_train_reduced <- one_hot_train_features[, rfe_one_hot$optVariables]
 one_hot_test_reduced <- one_hot_test_features[, rfe_one_hot$optVariables]
 
 ## Rfe on numeric_features
 
-rfe_numeric <- rfe(numeric_train_features, train_labels, 
-                   sizes = c(seq(10, 50, 10), 100, 150, ncol(data)),
+rfe_numeric <- rfe(numeric_train_features, train_labels,
+                   sizes = rfe_sizes,
                    rfeControl = rfe_control,
-                   metric = "f2")
+                   metric = metric,
+                   ntree = rfe_trees)
 numeric_train_reduced <- numeric_train_features[, rfe_numeric$optVariables]
 numeric_test_reduced <- numeric_test_features[, rfe_numeric$optVariables]
+
+```
+
+```{r}
+
+plot(rfe,type = c("g", "o"))
+plot(rfe_one_hot,type = c("g", "o"))
+plot(rfe_numeric,type = c("g", "o"))
+
+# xyplot(rfe,type = c("g", "p", "smooth"))
+
+```
+
+```{r}
+
+rfe$optVariables
+print('------------------------')
+rfe_one_hot$optVariables
+print('------------------------')
+rfe_numeric$optVariables
 
 ```
 
@@ -197,11 +223,11 @@ rf_results$f2
 default <- round(sqrt(ncol(train_reduced)))
 gs <- data.frame(mtry = c(default, default + 2, default + 4, default + 6))
 
-# Reduced features
-set.seed(1)
-rf_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rf", ctrl)
-rf_reduced$conf_matrix
-rf_reduced$f2
+# # Reduced features
+# set.seed(1)
+# rf_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rf", ctrl)
+# rf_reduced$conf_matrix
+# rf_reduced$f2
 
 # One_hot features
 set.seed(1)
@@ -209,13 +235,20 @@ rf_one_hot <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_f
 rf_one_hot$conf_matrix
 rf_one_hot$f2
 
-# One_hot reduced features
-set.seed(1)
-rf_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="rf", ctrl)
-rf_one_hot_reduced$conf_matrix
-rf_one_hot_reduced$f2
+# # One_hot reduced features
+# set.seed(1)
+# rf_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="rf", ctrl)
+# rf_one_hot_reduced$conf_matrix
+# rf_one_hot_reduced$f2
 
 ```
+
+```{r}
+
+
+
+```
+
 
 ## Support vector machines
 
