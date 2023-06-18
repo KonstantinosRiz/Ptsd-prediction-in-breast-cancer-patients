@@ -1630,8 +1630,6 @@ display: none;
 </div>
 
 
-<p>This file is used for testing the development of the machine learning
-models</p>
 <p>Initializing and loading the preprocessed, clean dataset which
 includes:</p>
 <ol style="list-style-type: decimal">
@@ -1697,66 +1695,456 @@ data &lt;- final_features[[1]]
 train_features &lt;- data[train_indices, ]
 test_features &lt;- data[-train_indices, ]
 
+new_train_features &lt;- train_features[ , !names(train_features) %in% 
+                                    c(&#39;Emot_Fun_QLQ30.0&#39;, &#39;Emot_Fun_QLQ30.3&#39;, &#39;nccn_distress_thermometer.0&#39;, &#39;nccn_distress_thermometer.3&#39;)]
+new_test_features &lt;- test_features[ , !names(test_features) %in% 
+                                    c(&#39;Emot_Fun_QLQ30.0&#39;, &#39;Emot_Fun_QLQ30.3&#39;, &#39;nccn_distress_thermometer.0&#39;, &#39;nccn_distress_thermometer.3&#39;)]
+
+#### This should be commented out if we don&#39;t want to remove the above features
+# train_features &lt;- new_train_features
+# test_features &lt;- new_test_features
+
 train_labels &lt;- new_final_label[train_indices]
 test_labels &lt;- new_final_label[-train_indices]
 
-one_hot_train_features &lt;- model.matrix(~ . - 1, data = train_features)
-one_hot_test_features &lt;- model.matrix(~ . - 1, data = test_features)
+dummy &lt;- dummyVars(&quot;~.&quot;, data = train_features)
+one_hot_train_features &lt;- data.frame(predict(dummy, newdata = train_features))
+one_hot_test_features &lt;- data.frame(predict(dummy, newdata = test_features))
+  
+  
+# ! Temporarily commented out for different approach
 
-numeric_train_features &lt;- train_features %&gt;% select_if(is.numeric)
-numeric_test_features &lt;- test_features %&gt;% select_if(is.numeric)
-
-# train_labels &lt;- data.frame(train_labels)
-# names(train_labels) &lt;- label_name</code></pre>
-<p>Use recursive feature elimination to reduce the number of our
-features even more</p>
+# one_hot_train_features &lt;- model.matrix(~ . - 1, data = train_features)
+# one_hot_test_features &lt;- model.matrix(~ . - 1, data = test_features)
+# yInd &lt;- data.frame(model.matrix.lm(Depression_HADS_clusters ~ ., data = ytrain[,-1], na.action = &quot;na.pass&quot;))[,-1]</code></pre>
+<div id="feature-reduction-using-rfe" class="section level1">
+<h1>Feature reduction using RFE</h1>
 <pre class="r"><code>myFuncs &lt;- rfFuncs
-myFuncs$summary &lt;- f2_summary
+myFuncs$summary &lt;- many_stats_summary
+myFuncs$selectSize &lt;- myPickSizeTolerance
+if (rfe_sampling_method == &quot;down&quot;) {
+  myFuncs$fit &lt;- rf_fit_down
+}
 rfe_control &lt;- rfeControl(functions = myFuncs,
                           method = &quot;repeatedcv&quot;,
                           repeats = 5,
-                          verbose = FALSE)
+                          verbose = FALSE,
+                          returnResamp = &quot;all&quot;)
 
 
 ## Rfe on initial features
 
-rfe &lt;- rfe(train_features, train_labels, 
-                   sizes = c(seq(10, 50, 10), 100, 150, ncol(data)),
-                   rfeControl = rfe_control,
-                   metric = &quot;f2&quot;)
-train_reduced &lt;- train_features[, rfe$optVariables]
-test_reduced &lt;- test_features[, rfe$optVariables]
+rfe_results &lt;- list()
+features_dict &lt;- hash()
+for (i in 1:rfe_iterations) {
+  rfe &lt;- rfe(train_features, train_labels,
+                         sizes = rfe_sizes,
+                         rfeControl = rfe_control,
+                         metric = metric,
+                         ntree = rfe_trees)
+  rfe_results[[i]] &lt;- rfe
+  
+  # Loop through the features chosen
+  for (feature in rfe$optVariables) {
+    if (has.key(feature, features_dict)) {
+      # Feature has been seen at least once
+      features_dict[[feature]] &lt;- features_dict[[feature]] + 1
+    } else {
+      # Newly considered feature
+      features_dict[[feature]] &lt;- 1
+    }
+  }
+}
+
+chosen_features &lt;- c()
+for (feature in keys(features_dict)) {
+  if (features_dict[[feature]] &gt;= div(rfe_iterations, 2)) {
+    chosen_features &lt;- append(chosen_features, feature)
+  }
+}
+train_reduced &lt;- train_features[, chosen_features]
+test_reduced &lt;- test_features[, chosen_features]
 
 ## Rfe on one_hot_encoded features
 
-rfe_one_hot &lt;- rfe(one_hot_train_features, train_labels, 
-                   sizes = c(seq(10, 50, 10), 100, 150, ncol(data)),
-                   rfeControl = rfe_control,
-                   metric = &quot;f2&quot;)
-one_hot_train_reduced &lt;- one_hot_train_features[, rfe_one_hot$optVariables]
-one_hot_test_reduced &lt;- one_hot_test_features[, rfe_one_hot$optVariables]
+rfe_one_hot_results &lt;- list()
+one_hot_features_dict &lt;- hash()
+for (i in 1:rfe_iterations) {
+  rfe &lt;- rfe(one_hot_train_features, train_labels,
+                         sizes = rfe_sizes,
+                         rfeControl = rfe_control,
+                         metric = metric,
+                         ntree = rfe_trees)
+  rfe_one_hot_results[[i]] &lt;- rfe
+  
+  # Loop through the features chosen
+  for (feature in rfe$optVariables) {
+    if (has.key(feature, one_hot_features_dict)) {
+      # Feature has been seen at least once
+      one_hot_features_dict[[feature]] &lt;- one_hot_features_dict[[feature]] + 1
+    } else {
+      # Newly considered feature
+      one_hot_features_dict[[feature]] &lt;- 1
+    }
+  }
+}
 
-## Rfe on numeric_features
+one_hot_chosen_features &lt;- c()
+for (feature in keys(one_hot_features_dict)) {
+  if (one_hot_features_dict[[feature]] &gt;= rfe_cutoff) {
+    one_hot_chosen_features &lt;- append(one_hot_chosen_features, feature)
+  }
+}
 
-rfe_numeric &lt;- rfe(numeric_train_features, train_labels, 
-                   sizes = c(seq(10, 50, 10), 100, 150, ncol(data)),
-                   rfeControl = rfe_control,
-                   metric = &quot;f2&quot;)
-numeric_train_reduced &lt;- numeric_train_features[, rfe_numeric$optVariables]
-numeric_test_reduced &lt;- numeric_test_features[, rfe_numeric$optVariables]</code></pre>
+for (name in one_hot_chosen_features) {
+  if (!(name %in% names(one_hot_train_features))) {
+    print(name)
+  }
+}
+
+one_hot_train_reduced &lt;- one_hot_train_features[, one_hot_chosen_features]
+one_hot_test_reduced &lt;- one_hot_test_features[, one_hot_chosen_features]</code></pre>
+<pre class="r"><code>features_list &lt;- list()
+for (key in keys(features_dict)) {
+  features_list[[key]] &lt;- features_dict[[key]]
+}
+sorted_indices &lt;- c(order(unlist(features_list), decreasing=TRUE))
+sorted_features &lt;- features_list[sorted_indices]
+sorted_chosen &lt;- sorted_features[sorted_features &gt;= rfe_cutoff]
+sorted_left &lt;- sorted_features[sorted_features &lt; rfe_cutoff &amp; sorted_features &gt; 2]
+
+cat(paste(names(sorted_chosen), sorted_chosen, sep = &quot;: &quot;, collapse = &quot;\n&quot;))</code></pre>
+<pre><code>## Anxiety_HADS.3: 10
+## Breast_Symptoms_BR23.3: 10
+## Depression_HADS.0: 10
+## Depression_HADS.3: 10
+## Emot_Fun_QLQ30.0: 10
+## Future_Persp_Image_BR23.0: 10
+## Future_Persp_Image_BR23.3: 10
+## M0_coping_with_cancer_CBI: 10
+## M0_manageability_SOC: 10
+## M0_negative_overall_CERQ: 10
+## M0_optimism_LOT: 10
+## M3_MAC_helpless: 10
+## nccn_distress_thermometer.3: 10
+## Negative_affect_PANAS.3: 10
+## Anxiety_HADS.0: 9
+## M0_Forward_PACT: 9
+## M3_MAC_anxious_preoc: 9
+## M3_mMOS_instumental_support: 9
+## perceived_suppport_1_item.0: 8
+## Emot_Fun_QLQ30.3: 7
+## Insomnia_QLQ30.3: 7
+## m3_domestic_help_days: 7
+## m3_domestic_help_during_last_three_months: 7
+## Negative_affect_PANAS.0: 7
+## M0_pos_refus_CERQ: 6
+## Body_Image_BR23.3: 5
+## M0_meaningfulness_SOC: 5
+## M0_positive_overall_CERQ: 5
+## M0_rumination_CERQ: 5
+## Pain_QLQ30.3: 5</code></pre>
+<pre class="r"><code>cat(&#39;\n&#39;)</code></pre>
+<pre class="r"><code>cat(&#39;------------------------------------------------------------------------------&#39;)</code></pre>
+<pre><code>## ------------------------------------------------------------------------------</code></pre>
+<pre class="r"><code>cat(&#39;\n&#39;)</code></pre>
+<pre class="r"><code>cat(paste(names(sorted_left), sorted_left, sep = &quot;: &quot;, collapse = &quot;\n&quot;))</code></pre>
+<pre><code>## general_se_1_item.3: 4
+## Global_QLQ30.0: 4
+## M0_comprehensibility_SOC: 4
+## M0_fear_of_recur_FCRI: 4
+## Phys_Fun_QLQ30.0: 4
+## Role_Fun_QLQ30.3: 4
+## Financial_QLQ30.0: 3
+## M0_catastrophizing_CERQ: 3
+## M0_resilience_CDRISC: 3
+## Phys_Fun_QLQ30.3: 3</code></pre>
+<pre class="r"><code>cat(&#39;\n\n\n&#39;)</code></pre>
+<pre class="r"><code>cat(&#39;------------------------------------------------------------------------------&#39;)</code></pre>
+<pre><code>## ------------------------------------------------------------------------------</code></pre>
+<pre class="r"><code>cat(&#39;\n\n\n&#39;)</code></pre>
+<pre class="r"><code>one_hot_features_list &lt;- list()
+for (key in keys(one_hot_features_dict)) {
+  one_hot_features_list[[key]] &lt;- one_hot_features_dict[[key]]
+}
+one_hot_sorted_indices &lt;- c(order(unlist(one_hot_features_list), decreasing=TRUE))
+one_hot_sorted_features &lt;- one_hot_features_list[one_hot_sorted_indices]
+one_hot_sorted_chosen &lt;- one_hot_sorted_features[one_hot_sorted_features &gt;= rfe_cutoff]
+one_hot_sorted_left &lt;- one_hot_sorted_features[one_hot_sorted_features &lt; rfe_cutoff &amp; one_hot_sorted_features &gt; 2]
+
+cat(paste(names(one_hot_sorted_chosen), one_hot_sorted_chosen, sep = &quot;: &quot;, collapse = &quot;\n&quot;))</code></pre>
+<pre><code>## Anxiety_HADS.3: 10
+## Breast_Symptoms_BR23.3: 10
+## Depression_HADS.0: 10
+## Depression_HADS.3: 10
+## Emot_Fun_QLQ30.0: 10
+## Future_Persp_Image_BR23.0: 10
+## Future_Persp_Image_BR23.3: 10
+## M0_coping_with_cancer_CBI: 10
+## M0_manageability_SOC: 10
+## M0_negative_overall_CERQ: 10
+## M3_MAC_helpless: 10
+## nccn_distress_thermometer.3: 10
+## Negative_affect_PANAS.3: 10
+## Anxiety_HADS.0: 9
+## M3_MAC_anxious_preoc: 9
+## M0_Forward_PACT: 8
+## M0_optimism_LOT: 8
+## perceived_suppport_1_item.0: 8
+## Emot_Fun_QLQ30.3: 7
+## M0_comprehensibility_SOC: 7
+## m3_domestic_help_during_last_three_months.1: 7
+## M3_mMOS_instumental_support: 7
+## Fatigue_QLQ30.0: 6
+## Global_QLQ30.0: 6
+## Insomnia_QLQ30.3: 6
+## M0_pos_refus_CERQ: 6
+## m3_domestic_help_days: 6
+## m3_domestic_help_during_last_three_months.0: 6
+## Negative_affect_PANAS.0: 6
+## Phys_Fun_QLQ30.0: 6
+## Phys_Fun_QLQ30.3: 6
+## Role_Fun_QLQ30.3: 6
+## age_baseline: 5
+## antiher2.3: 5
+## antiher2_regimen.0: 5
+## antiher2_regimen.1: 5
+## antiher2_regimen.2: 5
+## antiher2_treatment.0: 5
+## antiher2_treatment.1: 5
+## Apetite_QLQ30.0: 5
+## Apetite_QLQ30.3: 5
+## Arm_Symptoms_BR23.0: 5
+## Arm_Symptoms_BR23.3: 5
+## baseline_alt: 5
+## baseline_creatinine: 5
+## baseline_erclass.0: 5
+## baseline_erclass.1: 5
+## baseline_hb: 5
+## baseline_histological_type.1: 5
+## baseline_histological_type.2: 5
+## baseline_histological_type.3: 5
+## baseline_hormone_replacement_pre_treatment.0: 5
+## baseline_hormone_replacement_pre_treatment.1: 5
+## baseline_ki67: 5
+## baseline_ki67class.0: 5
+## baseline_ki67class.1: 5
+## baseline_leukocytes: 5
+## baseline_LuminalB_f.0: 5
+## baseline_LuminalB_f.1: 5
+## baseline_NLR: 5
+## baseline_pn.1: 5
+## baseline_pn.2: 5
+## baseline_pn.3: 5
+## baseline_pn.4: 5
+## baseline_pr: 5
+## baseline_prclass.0: 5
+## baseline_prclass.1: 5
+## baseline_pt: 5
+## baseline_subtypes.1: 5
+## baseline_subtypes.2: 5
+## baseline_subtypes.3: 5
+## baseline_subtypes.4: 5
+## baseline_subtypes.5: 5
+## baseline_thrombocytes: 5
+## bipq1.3: 5
+## bipq2.3: 5
+## Body_Image_BR23.0: 5
+## Body_Image_BR23.3: 5
+## Breast_Symptoms_BR23.0: 5
+## cancer_grade.1: 5
+## cancer_grade.2: 5
+## cancer_grade.3: 5
+## cancer_grade.4: 5
+## cancer_stage.1: 5
+## cancer_stage.2: 5
+## cancer_stage.3: 5
+## care_team.1: 5
+## care_team.2: 5
+## care_team.3: 5
+## care_team.4: 5
+## chemo.3.0: 5
+## chemo.3.1: 5
+## chemo.3.2: 5
+## chemo.3.3: 5
+## chemo0_type.0: 5
+## chemo0_type.1: 5
+## chemo0_type.2: 5
+## Cogn_Fun_QLQ30.0: 5
+## Cogn_Fun_QLQ30.3: 5
+## Constipation_QLQ30.0: 5
+## Constipation_QLQ30.3: 5
+## Diarrhoea_QLQ30.0: 5
+## Diarrhoea_QLQ30.3: 5
+## Dyspnoea_QLQ30.0: 5
+## Dyspnoea_QLQ30.3: 5
+## education_2.1: 5
+## education_2.2: 5
+## endocrine.3.0: 5
+## endocrine.3.1: 5
+## family_history.0: 5
+## family_history.1: 5
+## family_history.3: 5
+## family_history.4: 5
+## Fatigue_QLQ30.3: 5
+## Financial_QLQ30.0: 5
+## Financial_QLQ30.3: 5
+## FORTH_baseline_chronic_illness.0: 5
+## FORTH_baseline_chronic_illness.1: 5
+## FORTH_M0_psychotropics.0: 5
+## FORTH_M0_psychotropics.1: 5
+## FORTH_m3_illness_events0.1.2: 5
+## FORTH_M3_Mental_health_support.0: 5
+## FORTH_M3_Mental_health_support.1: 5
+## FORTH_m3_performancestatus.0: 5
+## FORTH_m3_performancestatus.1: 5
+## FORTH_m3_performancestatus.2: 5
+## FORTH_m3_performancestatus.3: 5
+## FORTH_M3_psychotropics.0: 5
+## FORTH_M3_psychotropics.1: 5
+## FORTH_preexisting_illnesses.0: 5
+## FORTH_preexisting_illnesses.1: 5
+## FORTH_preexisting_illnesses.2: 5
+## FORTH_preexisting_illnesses.3: 5
+## FORTH_preexisting_illnesses.4: 5
+## FORTH_preexisting_mentalillness.0: 5
+## FORTH_preexisting_mentalillness.1: 5
+## FORTH_preexisting_metabolicillness.0: 5
+## FORTH_preexisting_metabolicillness.1: 5
+## general_se_1_item.0: 5
+## general_se_1_item.3: 5
+## Global_QLQ30.3: 5
+## Insomnia_QLQ30.0: 5
+## LifeEvents_012.0.0: 5
+## LifeEvents_012.0.1: 5
+## LifeEvents_012.0.2: 5
+## LifeEvents_012.3.0: 5
+## LifeEvents_012.3.1: 5
+## LifeEvents_012.3.2: 5
+## M0_acceptance_CERQ: 5
+## m0_BMI: 5
+## M0_catastrophizing_CERQ: 5
+## m0_diet.0: 5
+## m0_diet.1: 5
+## m0_diet.2: 5
+## m0_do_you_smoke.1: 5
+## m0_do_you_smoke.2: 5
+## m0_do_you_smoke.3: 5
+## m0_drinking_EK.0: 5
+## m0_drinking_EK.1: 5
+## m0_drinking_EK.2: 5
+## m0_employment.1: 5
+## m0_employment.2: 5
+## m0_exercise_012.0: 5
+## m0_exercise_012.1: 5
+## m0_exercise_012.2: 5
+## M0_fear_of_recur_FCRI: 5
+## m0_income_3.1: 5
+## m0_income_3.2: 5
+## m0_income_3.3: 5
+## m0_marital: 5
+## M0_meaningfulness_SOC: 5
+## m0_menopausalstatuspre.1: 5
+## m0_menopausalstatuspre.2: 5
+## m0_menopausalstatuspre.3: 5
+## M0_mindfulness_MAAS: 5
+## M0_other_blame_CERQ: 5
+## M0_performancestatus.0: 5
+## M0_performancestatus.1: 5
+## M0_performancestatus.2: 5
+## M0_performancestatus.5: 5
+## M0_perspective_CERQ: 5
+## M0_planning_CERQ: 5
+## M0_pos_reapp_CERQ: 5
+## M0_positive_overall_CERQ: 5
+## M0_resilience_CDRISC: 5
+## M0_rumination_CERQ: 5
+## M0_self_blame_CERQ: 5
+## m0_sick_leave_days: 5
+## M0_Trauma_PACT: 5
+## m3_do_you_do_any_activities_to_support_your_wellbeing.0: 5
+## m3_do_you_do_any_activities_to_support_your_wellbeing.1: 5
+## m3_employment_status.1: 5
+## m3_employment_status.2: 5
+## m3_employment_status.3: 5
+## m3_employment_status.4: 5
+## m3_employment_status.5: 5
+## m3_employment_status.6: 5
+## M3_FARE_commun_cohesion: 5
+## M3_FARE_family_coping: 5
+## M3_MAC_avoidance: 5
+## M3_MAC_fatalism: 5
+## M3_MAC_fighting: 5
+## m3_mental_health_support.0: 5
+## m3_mental_health_support.1: 5
+## m3_mental_health_support_times: 5
+## M3_mMOS_emotional_support: 5
+## M3_PTGI_appreciation_of_life: 5
+## M3_PTGI_new_possibilities: 5
+## M3_PTGI_personal_strength: 5
+## M3_PTGI_relating_to_others: 5
+## M3_PTGI_spiritual_change: 5
+## m3_sick_leave_days: 5
+## m3_used_services_to_support_wellbeing.0: 5
+## m3_used_services_to_support_wellbeing.1: 5
+## mastectomy.0: 5
+## mastectomy.1: 5
+## mos.3: 5
+## Nausea_QLQ30.0: 5
+## Nausea_QLQ30.3: 5
+## nccn_distress_thermometer.0: 5
+## number_of_children: 5
+## Pain_QLQ30.0: 5
+## Pain_QLQ30.3: 5
+## perceived_suppport_1_item.3: 5
+## Positive_affect_PANAS.0: 5
+## Positive_affect_PANAS.3: 5
+## radio.3: 5
+## radiotherapy.0: 5
+## radiotherapy.1: 5
+## Role_Fun_QLQ30.0: 5
+## Sex_Funct_BR23.0: 5
+## Sex_Funct_BR23.3: 5
+## Side_Effects_BR23.0: 5
+## Side_Effects_BR23.3: 5
+## single_item_cope1.3: 5
+## single_item_cope10.3: 5
+## single_item_cope2.3: 5
+## single_item_cope3.3: 5
+## single_item_cope4.3: 5
+## single_item_cope5.3: 5
+## single_item_cope6.3: 5
+## single_item_cope7.3: 5
+## single_item_cope8.3: 5
+## single_item_cope9.3: 5
+## Soc_Fun_QLQ30.0: 5
+## Soc_Fun_QLQ30.3: 5
+## surgery.3.0: 5
+## surgery.3.1: 5
+## TamoxifenVSother.0: 5
+## TamoxifenVSother.1: 5
+## TamoxifenVSother.2: 5
+## TamoxifenVSother.3: 5
+## Upset_Hair_Image_BR23B.0: 5
+## Upset_Hair_Image_BR23B.3: 5</code></pre>
+<pre class="r"><code>cat(&#39;\n&#39;)</code></pre>
+<pre class="r"><code>cat(&#39;------------------------------------------------------------------------------&#39;)</code></pre>
+<pre><code>## ------------------------------------------------------------------------------</code></pre>
+<pre class="r"><code>cat(&#39;\n&#39;)</code></pre>
+<pre class="r"><code>cat(paste(names(one_hot_sorted_left), one_hot_sorted_left, sep = &quot;: &quot;, collapse = &quot;\n&quot;))</code></pre>
+</div>
 <div id="models" class="section level1">
 <h1>Models</h1>
 <p>Run the wanted model using all the combinations of the
 hyperparameters in the respective grid, find the optimal model and
-evaluate it on the test set. We try both the full-featured dataset and
-the reduced one</p>
+evaluate it on the test set. We try both the full-featured dataset where
+there are no limitations. We try the one-hot encoded dataset where we
+can’t use factors.</p>
 <pre class="r"><code># Use k-fold cross validation to evaluate the models
 # and the appropriate summary function for the metric (f2)
 ctrl &lt;- trainControl(method = &quot;cv&quot;, number=k_fold,
                      summaryFunction = f2_summary,
-                     # summaryFunction = defaultSummary,
-                     # sampling = sampling_method,
-                     sampling=&quot;down&quot;,
+                     sampling = sampling_method,
                      verboseIter=FALSE
 )</code></pre>
 <div id="decision-tree" class="section level2">
@@ -1766,8 +2154,12 @@ ctrl &lt;- trainControl(method = &quot;cv&quot;, number=k_fold,
 
 # All features
 set.seed(1)
-dt_results &lt;- run_model(gs, train_features, train_labels, test_features, test_labels, method=&quot;rpart&quot;, ctrl)
-dt_results$conf_matrix</code></pre>
+dt &lt;- run_model(gs, train_features, train_labels, test_features, test_labels, method=&quot;rpart&quot;, ctrl)</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>dt$conf_matrix</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
@@ -1795,12 +2187,18 @@ dt_results$conf_matrix</code></pre>
 ##                                           
 ##        &#39;Positive&#39; Class : 1               
 ## </code></pre>
-<pre class="r"><code>dt_results$f2</code></pre>
+<pre class="r"><code>dt$f2</code></pre>
 <pre><code>## [1] 0.3488372</code></pre>
+<pre class="r"><code>dt$auc</code></pre>
+<pre><code>## Area under the curve: 0.6716</code></pre>
 <pre class="r"><code># Reduced features
 set.seed(1)
-dt_reduced &lt;- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method=&quot;rpart&quot;, ctrl)
-dt_reduced$conf_matrix</code></pre>
+dt_reduced &lt;- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method=&quot;rpart&quot;, ctrl)</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1
+## Setting direction: controls &lt; cases</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>dt_reduced$conf_matrix</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
@@ -1830,72 +2228,8 @@ dt_reduced$conf_matrix</code></pre>
 ## </code></pre>
 <pre class="r"><code>dt_reduced$f2</code></pre>
 <pre><code>## [1] 0.3488372</code></pre>
-<pre class="r"><code># One_hot features
-set.seed(1)
-dt_one_hot &lt;- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method=&quot;rpart&quot;, ctrl)
-dt_one_hot$conf_matrix</code></pre>
-<pre><code>## Confusion Matrix and Statistics
-## 
-##           Reference
-## Prediction  0  1
-##          0 84  2
-##          1 76  9
-##                                           
-##                Accuracy : 0.5439          
-##                  95% CI : (0.4661, 0.6201)
-##     No Information Rate : 0.9357          
-##     P-Value [Acc &gt; NIR] : 1               
-##                                           
-##                   Kappa : 0.083           
-##                                           
-##  Mcnemar&#39;s Test P-Value : &lt;2e-16          
-##                                           
-##             Sensitivity : 0.81818         
-##             Specificity : 0.52500         
-##          Pos Pred Value : 0.10588         
-##          Neg Pred Value : 0.97674         
-##              Prevalence : 0.06433         
-##          Detection Rate : 0.05263         
-##    Detection Prevalence : 0.49708         
-##       Balanced Accuracy : 0.67159         
-##                                           
-##        &#39;Positive&#39; Class : 1               
-## </code></pre>
-<pre class="r"><code>dt_one_hot$f2</code></pre>
-<pre><code>## [1] 0.3488372</code></pre>
-<pre class="r"><code># One_hot reduced features
-set.seed(1)
-dt_one_hot_reduced &lt;- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method=&quot;rpart&quot;, ctrl)
-dt_one_hot_reduced$conf_matrix</code></pre>
-<pre><code>## Confusion Matrix and Statistics
-## 
-##           Reference
-## Prediction   0   1
-##          0 104   2
-##          1  56   9
-##                                           
-##                Accuracy : 0.6608          
-##                  95% CI : (0.5846, 0.7313)
-##     No Information Rate : 0.9357          
-##     P-Value [Acc &gt; NIR] : 1               
-##                                           
-##                   Kappa : 0.1425          
-##                                           
-##  Mcnemar&#39;s Test P-Value : 3.421e-12       
-##                                           
-##             Sensitivity : 0.81818         
-##             Specificity : 0.65000         
-##          Pos Pred Value : 0.13846         
-##          Neg Pred Value : 0.98113         
-##              Prevalence : 0.06433         
-##          Detection Rate : 0.05263         
-##    Detection Prevalence : 0.38012         
-##       Balanced Accuracy : 0.73409         
-##                                           
-##        &#39;Positive&#39; Class : 1               
-## </code></pre>
-<pre class="r"><code>dt_one_hot_reduced$f2</code></pre>
-<pre><code>## [1] 0.412844</code></pre>
+<pre class="r"><code>dt_reduced$auc</code></pre>
+<pre><code>## Area under the curve: 0.6716</code></pre>
 </div>
 <div id="random-forest" class="section level2">
 <h2>Random Forest</h2>
@@ -1904,8 +2238,12 @@ gs &lt;- data.frame(mtry = c(default - 10, default - 5, default, default + 5, de
 
 # All features
 set.seed(1)
-rf_results &lt;- run_model(gs, train_features, train_labels, test_features, test_labels, method=&quot;rf&quot;, ctrl)
-rf_results$conf_matrix</code></pre>
+rf &lt;- run_model(gs, train_features, train_labels, test_features, test_labels, method=&quot;rf&quot;, ctrl)</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>rf$conf_matrix</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
@@ -1933,232 +2271,222 @@ rf_results$conf_matrix</code></pre>
 ##                                           
 ##        &#39;Positive&#39; Class : 1               
 ## </code></pre>
-<pre class="r"><code>rf_results$f2</code></pre>
+<pre class="r"><code>rf$f2</code></pre>
 <pre><code>## [1] 0.4651163</code></pre>
+<pre class="r"><code>rf$auc</code></pre>
+<pre><code>## Area under the curve: 0.7574</code></pre>
 <pre class="r"><code># Appropriate upper limit
 default &lt;- round(sqrt(ncol(train_reduced)))
 gs &lt;- data.frame(mtry = c(default, default + 2, default + 4, default + 6))
 
 # Reduced features
 set.seed(1)
-rf_reduced &lt;- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method=&quot;rf&quot;, ctrl)
-rf_reduced$conf_matrix</code></pre>
+rf_reduced &lt;- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method=&quot;rf&quot;, ctrl)</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1
+## Setting direction: controls &lt; cases</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>rf_reduced$conf_matrix</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
 ## Prediction   0   1
-##          0 126   1
-##          1  34  10
+##          0 127   3
+##          1  33   8
 ##                                          
-##                Accuracy : 0.7953         
-##                  95% CI : (0.727, 0.8531)
+##                Accuracy : 0.7895         
+##                  95% CI : (0.7207, 0.848)
 ##     No Information Rate : 0.9357         
 ##     P-Value [Acc &gt; NIR] : 1              
 ##                                          
-##                   Kappa : 0.2906         
+##                   Kappa : 0.2295         
 ##                                          
-##  Mcnemar&#39;s Test P-Value : 6.338e-08      
+##  Mcnemar&#39;s Test P-Value : 1.343e-06      
 ##                                          
-##             Sensitivity : 0.90909        
-##             Specificity : 0.78750        
-##          Pos Pred Value : 0.22727        
-##          Neg Pred Value : 0.99213        
+##             Sensitivity : 0.72727        
+##             Specificity : 0.79375        
+##          Pos Pred Value : 0.19512        
+##          Neg Pred Value : 0.97692        
 ##              Prevalence : 0.06433        
-##          Detection Rate : 0.05848        
-##    Detection Prevalence : 0.25731        
-##       Balanced Accuracy : 0.84830        
+##          Detection Rate : 0.04678        
+##    Detection Prevalence : 0.23977        
+##       Balanced Accuracy : 0.76051        
 ##                                          
 ##        &#39;Positive&#39; Class : 1              
 ## </code></pre>
 <pre class="r"><code>rf_reduced$f2</code></pre>
-<pre><code>## [1] 0.5681818</code></pre>
-<pre class="r"><code># One_hot features
-set.seed(1)
-rf_one_hot &lt;- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method=&quot;rf&quot;, ctrl)
-rf_one_hot$conf_matrix</code></pre>
-<pre><code>## Confusion Matrix and Statistics
-## 
-##           Reference
-## Prediction   0   1
-##          0 121   3
-##          1  39   8
-##                                           
-##                Accuracy : 0.7544          
-##                  95% CI : (0.6828, 0.8169)
-##     No Information Rate : 0.9357          
-##     P-Value [Acc &gt; NIR] : 1               
-##                                           
-##                   Kappa : 0.1916          
-##                                           
-##  Mcnemar&#39;s Test P-Value : 6.641e-08       
-##                                           
-##             Sensitivity : 0.72727         
-##             Specificity : 0.75625         
-##          Pos Pred Value : 0.17021         
-##          Neg Pred Value : 0.97581         
-##              Prevalence : 0.06433         
-##          Detection Rate : 0.04678         
-##    Detection Prevalence : 0.27485         
-##       Balanced Accuracy : 0.74176         
-##                                           
-##        &#39;Positive&#39; Class : 1               
-## </code></pre>
-<pre class="r"><code>rf_one_hot$f2</code></pre>
-<pre><code>## [1] 0.4395604</code></pre>
-<pre class="r"><code># One_hot reduced features
-set.seed(1)
-rf_one_hot_reduced &lt;- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method=&quot;rf&quot;, ctrl)
-rf_one_hot_reduced$conf_matrix</code></pre>
-<pre><code>## Confusion Matrix and Statistics
-## 
-##           Reference
-## Prediction   0   1
-##          0 129   3
-##          1  31   8
-##                                           
-##                Accuracy : 0.8012          
-##                  95% CI : (0.7334, 0.8582)
-##     No Information Rate : 0.9357          
-##     P-Value [Acc &gt; NIR] : 1               
-##                                           
-##                   Kappa : 0.2441          
-##                                           
-##  Mcnemar&#39;s Test P-Value : 3.649e-06       
-##                                           
-##             Sensitivity : 0.72727         
-##             Specificity : 0.80625         
-##          Pos Pred Value : 0.20513         
-##          Neg Pred Value : 0.97727         
-##              Prevalence : 0.06433         
-##          Detection Rate : 0.04678         
-##    Detection Prevalence : 0.22807         
-##       Balanced Accuracy : 0.76676         
-##                                           
-##        &#39;Positive&#39; Class : 1               
-## </code></pre>
-<pre class="r"><code>rf_one_hot_reduced$f2</code></pre>
-<pre><code>## [1] 0.4819277</code></pre>
+<pre><code>## [1] 0.4705882</code></pre>
+<pre class="r"><code>rf_reduced$auc</code></pre>
+<pre><code>## Area under the curve: 0.7605</code></pre>
 </div>
 <div id="support-vector-machines" class="section level2">
 <h2>Support vector machines</h2>
 <pre class="r"><code># One-hot encoded features
-# gs &lt;- expand.grid(C = c(1),
-#                   sigma = c(1 / ncol(one_hot_train_features)),
-#                   Weight = seq(0.5, 2, by=0.5))
-# set.seed(1)
-# svm_one_hot &lt;- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method=&quot;svmRadialWeights&quot;, ctrl)
-# svm_one_hot$conf_matrix
-# svm_one_hot$f2
+gs &lt;- expand.grid(C = c(1),
+                  sigma = c(1 / ncol(one_hot_train_features)),
+                  Weight = seq(0.5, 2, by=0.5))
+set.seed(1)
+svm &lt;- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method=&quot;svmRadialWeights&quot;, ctrl)</code></pre>
+<pre><code>## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
 
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
 
-# One-hot reduced features
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>svm$conf_matrix</code></pre>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction   0   1
+##          0   3   0
+##          1 157  11
+##                                           
+##                Accuracy : 0.0819          
+##                  95% CI : (0.0455, 0.1336)
+##     No Information Rate : 0.9357          
+##     P-Value [Acc &gt; NIR] : 1               
+##                                           
+##                   Kappa : 0.0025          
+##                                           
+##  Mcnemar&#39;s Test P-Value : &lt;2e-16          
+##                                           
+##             Sensitivity : 1.00000         
+##             Specificity : 0.01875         
+##          Pos Pred Value : 0.06548         
+##          Neg Pred Value : 1.00000         
+##              Prevalence : 0.06433         
+##          Detection Rate : 0.06433         
+##    Detection Prevalence : 0.98246         
+##       Balanced Accuracy : 0.50938         
+##                                           
+##        &#39;Positive&#39; Class : 1               
+## </code></pre>
+<pre class="r"><code>svm$f2</code></pre>
+<pre><code>## [1] 0.259434</code></pre>
+<pre class="r"><code>svm$auc</code></pre>
+<pre><code>## Area under the curve: 0.5094</code></pre>
+<pre class="r"><code># One-hot reduced features
 gs &lt;- expand.grid(C = c(1),
                   sigma = c(1 / ncol(one_hot_train_reduced)),
                   Weight = seq(0.5, 2, by=0.5))
 set.seed(1)
-svm_one_hot_reduced &lt;- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method=&quot;svmRadialWeights&quot;, ctrl)
-svm_one_hot_reduced$conf_matrix</code></pre>
+svm_reduced &lt;- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method=&quot;svmRadialWeights&quot;, ctrl)</code></pre>
+<pre><code>## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.
+
+## Warning in .local(x, ...): Variable(s) `&#39; constant. Cannot scale data.</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1
+## Setting direction: controls &lt; cases</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>svm_reduced$conf_matrix</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
 ## Prediction   0   1
-##          0 123   1
-##          1  37  10
-##                                          
-##                Accuracy : 0.7778         
-##                  95% CI : (0.708, 0.8377)
-##     No Information Rate : 0.9357         
-##     P-Value [Acc &gt; NIR] : 1              
-##                                          
-##                   Kappa : 0.2686         
-##                                          
-##  Mcnemar&#39;s Test P-Value : 1.365e-08      
-##                                          
-##             Sensitivity : 0.90909        
-##             Specificity : 0.76875        
-##          Pos Pred Value : 0.21277        
-##          Neg Pred Value : 0.99194        
-##              Prevalence : 0.06433        
-##          Detection Rate : 0.05848        
-##    Detection Prevalence : 0.27485        
-##       Balanced Accuracy : 0.83892        
-##                                          
-##        &#39;Positive&#39; Class : 1              
-## </code></pre>
-<pre class="r"><code>svm_one_hot_reduced$f2</code></pre>
-<pre><code>## [1] 0.5494505</code></pre>
-<pre class="r"><code># Numeric features
-gs &lt;- expand.grid(C = c(1),
-                  sigma = c(1 / ncol(numeric_train_features)),
-                  Weight = seq(0.5, 2, by=0.5))
-set.seed(1)
-svm_numeric &lt;- run_model(gs, numeric_train_features, train_labels, numeric_test_features, test_labels, method=&quot;svmRadialWeights&quot;, ctrl)
-svm_numeric$conf_matrix</code></pre>
-<pre><code>## Confusion Matrix and Statistics
-## 
-##           Reference
-## Prediction   0   1
-##          0 126   4
-##          1  34   7
-##                                          
-##                Accuracy : 0.7778         
-##                  95% CI : (0.708, 0.8377)
-##     No Information Rate : 0.9357         
-##     P-Value [Acc &gt; NIR] : 1              
-##                                          
-##                   Kappa : 0.1867         
-##                                          
-##  Mcnemar&#39;s Test P-Value : 2.546e-06      
-##                                          
-##             Sensitivity : 0.63636        
-##             Specificity : 0.78750        
-##          Pos Pred Value : 0.17073        
-##          Neg Pred Value : 0.96923        
-##              Prevalence : 0.06433        
-##          Detection Rate : 0.04094        
-##    Detection Prevalence : 0.23977        
-##       Balanced Accuracy : 0.71193        
-##                                          
-##        &#39;Positive&#39; Class : 1              
-## </code></pre>
-<pre class="r"><code>svm_numeric$f2</code></pre>
-<pre><code>## [1] 0.4117647</code></pre>
-<pre class="r"><code># Numeric reduced features
-gs &lt;- expand.grid(C = c(1),
-                  sigma = c(1 / ncol(numeric_train_reduced)),
-                  Weight = seq(0.5, 2, by=0.5))
-set.seed(1)
-svm_numeric_reduced &lt;- run_model(gs, numeric_train_reduced, train_labels, numeric_test_reduced, test_labels, method=&quot;svmRadialWeights&quot;, ctrl)
-svm_numeric_reduced$conf_matrix</code></pre>
-<pre><code>## Confusion Matrix and Statistics
-## 
-##           Reference
-## Prediction   0   1
-##          0 117   1
-##          1  43  10
+##          0   3   0
+##          1 157  11
 ##                                           
-##                Accuracy : 0.7427          
-##                  95% CI : (0.6704, 0.8064)
+##                Accuracy : 0.0819          
+##                  95% CI : (0.0455, 0.1336)
 ##     No Information Rate : 0.9357          
 ##     P-Value [Acc &gt; NIR] : 1               
 ##                                           
-##                   Kappa : 0.2305          
+##                   Kappa : 0.0025          
 ##                                           
-##  Mcnemar&#39;s Test P-Value : 6.37e-10        
+##  Mcnemar&#39;s Test P-Value : &lt;2e-16          
 ##                                           
-##             Sensitivity : 0.90909         
-##             Specificity : 0.73125         
-##          Pos Pred Value : 0.18868         
-##          Neg Pred Value : 0.99153         
+##             Sensitivity : 1.00000         
+##             Specificity : 0.01875         
+##          Pos Pred Value : 0.06548         
+##          Neg Pred Value : 1.00000         
 ##              Prevalence : 0.06433         
-##          Detection Rate : 0.05848         
-##    Detection Prevalence : 0.30994         
-##       Balanced Accuracy : 0.82017         
+##          Detection Rate : 0.06433         
+##    Detection Prevalence : 0.98246         
+##       Balanced Accuracy : 0.50938         
 ##                                           
 ##        &#39;Positive&#39; Class : 1               
 ## </code></pre>
-<pre class="r"><code>svm_numeric_reduced$f2</code></pre>
-<pre><code>## [1] 0.5154639</code></pre>
+<pre class="r"><code>svm_reduced$f2</code></pre>
+<pre><code>## [1] 0.259434</code></pre>
+<pre class="r"><code>svm_reduced$auc</code></pre>
+<pre><code>## Area under the curve: 0.5094</code></pre>
 </div>
 <div id="adaboost" class="section level2">
 <h2>Adaboost</h2>
@@ -2168,8 +2496,12 @@ svm_numeric_reduced$conf_matrix</code></pre>
 
 # All features
 set.seed(1)
-adaboost_results &lt;- run_model(gs, train_features, train_labels, test_features, test_labels, method=&quot;AdaBoost.M1&quot;, ctrl)
-adaboost_results$conf_matrix</code></pre>
+adaboost &lt;- run_model(gs, train_features, train_labels, test_features, test_labels, method=&quot;AdaBoost.M1&quot;, ctrl)</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>adaboost$conf_matrix</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
@@ -2197,107 +2529,49 @@ adaboost_results$conf_matrix</code></pre>
 ##                                           
 ##        &#39;Positive&#39; Class : 1               
 ## </code></pre>
-<pre class="r"><code>adaboost_results$f2</code></pre>
+<pre class="r"><code>adaboost$f2</code></pre>
 <pre><code>## [1] 0.4123711</code></pre>
+<pre class="r"><code>adaboost$auc</code></pre>
+<pre><code>## Area under the curve: 0.723</code></pre>
 <pre class="r"><code># All features reduced
 set.seed(1)
-adaboost_reduced &lt;- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method=&quot;AdaBoost.M1&quot;, ctrl)
-adaboost_reduced$conf_matrix</code></pre>
+adaboost_reduced &lt;- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method=&quot;AdaBoost.M1&quot;, ctrl)</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1
+## Setting direction: controls &lt; cases</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>adaboost_reduced$conf_matrix</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
 ## Prediction   0   1
-##          0 134   4
-##          1  26   7
-##                                           
-##                Accuracy : 0.8246          
-##                  95% CI : (0.7591, 0.8784)
-##     No Information Rate : 0.9357          
-##     P-Value [Acc &gt; NIR] : 1.000000        
-##                                           
-##                   Kappa : 0.2454          
-##                                           
-##  Mcnemar&#39;s Test P-Value : 0.000126        
-##                                           
-##             Sensitivity : 0.63636         
-##             Specificity : 0.83750         
-##          Pos Pred Value : 0.21212         
-##          Neg Pred Value : 0.97101         
-##              Prevalence : 0.06433         
-##          Detection Rate : 0.04094         
-##    Detection Prevalence : 0.19298         
-##       Balanced Accuracy : 0.73693         
-##                                           
-##        &#39;Positive&#39; Class : 1               
-## </code></pre>
-<pre class="r"><code>adaboost_reduced$f2</code></pre>
-<pre><code>## [1] 0.4545455</code></pre>
-<pre class="r"><code># One_hot features
-set.seed(1)
-adaboost_one_hot &lt;- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method=&quot;AdaBoost.M1&quot;, ctrl)
-adaboost_one_hot$conf_matrix</code></pre>
-<pre><code>## Confusion Matrix and Statistics
-## 
-##           Reference
-## Prediction   0   1
-##          0 124   3
-##          1  36   8
+##          0 125   4
+##          1  35   7
 ##                                           
 ##                Accuracy : 0.7719          
 ##                  95% CI : (0.7017, 0.8325)
 ##     No Information Rate : 0.9357          
 ##     P-Value [Acc &gt; NIR] : 1               
 ##                                           
-##                   Kappa : 0.2096          
+##                   Kappa : 0.1806          
 ##                                           
-##  Mcnemar&#39;s Test P-Value : 2.99e-07        
+##  Mcnemar&#39;s Test P-Value : 1.556e-06       
 ##                                           
-##             Sensitivity : 0.72727         
-##             Specificity : 0.77500         
-##          Pos Pred Value : 0.18182         
-##          Neg Pred Value : 0.97638         
-##              Prevalence : 0.06433         
-##          Detection Rate : 0.04678         
-##    Detection Prevalence : 0.25731         
-##       Balanced Accuracy : 0.75114         
-##                                           
-##        &#39;Positive&#39; Class : 1               
-## </code></pre>
-<pre class="r"><code>adaboost_one_hot$f2</code></pre>
-<pre><code>## [1] 0.4545455</code></pre>
-<pre class="r"><code># One_hot reduced features
-set.seed(1)
-adaboost_one_hot_reduced &lt;- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method=&quot;AdaBoost.M1&quot;, ctrl)
-adaboost_one_hot_reduced$conf_matrix</code></pre>
-<pre><code>## Confusion Matrix and Statistics
-## 
-##           Reference
-## Prediction   0   1
-##          0 125   2
-##          1  35   9
-##                                           
-##                Accuracy : 0.7836          
-##                  95% CI : (0.7143, 0.8428)
-##     No Information Rate : 0.9357          
-##     P-Value [Acc &gt; NIR] : 1               
-##                                           
-##                   Kappa : 0.2501          
-##                                           
-##  Mcnemar&#39;s Test P-Value : 1.435e-07       
-##                                           
-##             Sensitivity : 0.81818         
+##             Sensitivity : 0.63636         
 ##             Specificity : 0.78125         
-##          Pos Pred Value : 0.20455         
-##          Neg Pred Value : 0.98425         
+##          Pos Pred Value : 0.16667         
+##          Neg Pred Value : 0.96899         
 ##              Prevalence : 0.06433         
-##          Detection Rate : 0.05263         
-##    Detection Prevalence : 0.25731         
-##       Balanced Accuracy : 0.79972         
+##          Detection Rate : 0.04094         
+##    Detection Prevalence : 0.24561         
+##       Balanced Accuracy : 0.70881         
 ##                                           
 ##        &#39;Positive&#39; Class : 1               
 ## </code></pre>
-<pre class="r"><code>adaboost_one_hot_reduced$f2</code></pre>
-<pre><code>## [1] 0.5113636</code></pre>
+<pre class="r"><code>adaboost_reduced$f2</code></pre>
+<pre><code>## [1] 0.4069767</code></pre>
+<pre class="r"><code>adaboost_reduced$auc</code></pre>
+<pre><code>## Area under the curve: 0.7088</code></pre>
 </div>
 <div id="gradient-boost" class="section level2">
 <h2>Gradient boost</h2>
@@ -2312,196 +2586,143 @@ adaboost_one_hot_reduced$conf_matrix</code></pre>
 
 # One_hot features
 set.seed(1)
-xgboost_one_hot &lt;- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method=&quot;xgbTree&quot;, ctrl)</code></pre>
-<pre><code>## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:06:59] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.</code></pre>
-<pre class="r"><code>xgboost_one_hot$conf_matrix</code></pre>
+xgboost &lt;- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method=&quot;xgbTree&quot;, ctrl)</code></pre>
+<pre><code>## [02:12:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>xgboost$conf_matrix</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
 ## Prediction   0   1
-##          0 103   3
-##          1  57   8
+##          0 101   2
+##          1  59   9
 ##                                           
-##                Accuracy : 0.6491          
-##                  95% CI : (0.5726, 0.7204)
+##                Accuracy : 0.6433          
+##                  95% CI : (0.5666, 0.7149)
 ##     No Information Rate : 0.9357          
 ##     P-Value [Acc &gt; NIR] : 1               
 ##                                           
-##                   Kappa : 0.1129          
+##                   Kappa : 0.1317          
 ##                                           
-##  Mcnemar&#39;s Test P-Value : 7.795e-12       
+##  Mcnemar&#39;s Test P-Value : 7.496e-13       
 ##                                           
-##             Sensitivity : 0.72727         
-##             Specificity : 0.64375         
-##          Pos Pred Value : 0.12308         
-##          Neg Pred Value : 0.97170         
+##             Sensitivity : 0.81818         
+##             Specificity : 0.63125         
+##          Pos Pred Value : 0.13235         
+##          Neg Pred Value : 0.98058         
 ##              Prevalence : 0.06433         
-##          Detection Rate : 0.04678         
-##    Detection Prevalence : 0.38012         
-##       Balanced Accuracy : 0.68551         
+##          Detection Rate : 0.05263         
+##    Detection Prevalence : 0.39766         
+##       Balanced Accuracy : 0.72472         
 ##                                           
 ##        &#39;Positive&#39; Class : 1               
 ## </code></pre>
-<pre class="r"><code>xgboost_one_hot$f2</code></pre>
-<pre><code>## [1] 0.3669725</code></pre>
+<pre class="r"><code>xgboost$f2</code></pre>
+<pre><code>## [1] 0.4017857</code></pre>
+<pre class="r"><code>xgboost$auc</code></pre>
+<pre><code>## Area under the curve: 0.7247</code></pre>
 <pre class="r"><code># One_hot reduced features
 set.seed(1)
-xgboost_one_hot_reduced &lt;- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method=&quot;xgbTree&quot;, ctrl)</code></pre>
-<pre><code>## [17:07:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:00] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.</code></pre>
-<pre class="r"><code>xgboost_one_hot_reduced$conf_matrix</code></pre>
+xgboost_reduced &lt;- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method=&quot;xgbTree&quot;, ctrl)</code></pre>
+<pre><code>## [02:12:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:04] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:04] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
+## [02:12:04] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1
+## Setting direction: controls &lt; cases</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>xgboost_reduced$conf_matrix</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
 ## Prediction   0   1
-##          0 104   2
-##          1  56   9
+##          0 104   3
+##          1  56   8
 ##                                           
-##                Accuracy : 0.6608          
-##                  95% CI : (0.5846, 0.7313)
+##                Accuracy : 0.655           
+##                  95% CI : (0.5786, 0.7259)
 ##     No Information Rate : 0.9357          
 ##     P-Value [Acc &gt; NIR] : 1               
 ##                                           
-##                   Kappa : 0.1425          
+##                   Kappa : 0.1163          
 ##                                           
-##  Mcnemar&#39;s Test P-Value : 3.421e-12       
+##  Mcnemar&#39;s Test P-Value : 1.289e-11       
 ##                                           
-##             Sensitivity : 0.81818         
+##             Sensitivity : 0.72727         
 ##             Specificity : 0.65000         
-##          Pos Pred Value : 0.13846         
-##          Neg Pred Value : 0.98113         
+##          Pos Pred Value : 0.12500         
+##          Neg Pred Value : 0.97196         
 ##              Prevalence : 0.06433         
-##          Detection Rate : 0.05263         
-##    Detection Prevalence : 0.38012         
-##       Balanced Accuracy : 0.73409         
+##          Detection Rate : 0.04678         
+##    Detection Prevalence : 0.37427         
+##       Balanced Accuracy : 0.68864         
 ##                                           
 ##        &#39;Positive&#39; Class : 1               
 ## </code></pre>
-<pre class="r"><code>xgboost_one_hot_reduced$f2</code></pre>
-<pre><code>## [1] 0.412844</code></pre>
-<pre class="r"><code># Numeric features
-set.seed(1)
-xgboost_numeric &lt;- run_model(gs, numeric_train_features, train_labels, numeric_test_features, test_labels, method=&quot;xgbTree&quot;, ctrl)</code></pre>
-<pre><code>## [17:07:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:01] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:02] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.</code></pre>
-<pre class="r"><code>xgboost_numeric$conf_matrix</code></pre>
-<pre><code>## Confusion Matrix and Statistics
-## 
-##           Reference
-## Prediction   0   1
-##          0 108   2
-##          1  52   9
-##                                          
-##                Accuracy : 0.6842         
-##                  95% CI : (0.6089, 0.753)
-##     No Information Rate : 0.9357         
-##     P-Value [Acc &gt; NIR] : 1              
-##                                          
-##                   Kappa : 0.1582         
-##                                          
-##  Mcnemar&#39;s Test P-Value : 2.592e-11      
-##                                          
-##             Sensitivity : 0.81818        
-##             Specificity : 0.67500        
-##          Pos Pred Value : 0.14754        
-##          Neg Pred Value : 0.98182        
-##              Prevalence : 0.06433        
-##          Detection Rate : 0.05263        
-##    Detection Prevalence : 0.35673        
-##       Balanced Accuracy : 0.74659        
-##                                          
-##        &#39;Positive&#39; Class : 1              
-## </code></pre>
-<pre class="r"><code>xgboost_numeric$f2</code></pre>
-<pre><code>## [1] 0.4285714</code></pre>
-<pre class="r"><code># Numeric reduced features
-set.seed(1)
-xgboost_numeric_reduced &lt;- run_model(gs, numeric_train_reduced, train_labels, numeric_test_reduced, test_labels, method=&quot;xgbTree&quot;, ctrl)</code></pre>
-<pre><code>## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.
-## [17:07:03] WARNING: src/c_api/c_api.cc:935: `ntree_limit` is deprecated, use `iteration_range` instead.</code></pre>
-<pre class="r"><code>xgboost_numeric_reduced$conf_matrix</code></pre>
-<pre><code>## Confusion Matrix and Statistics
-## 
-##           Reference
-## Prediction   0   1
-##          0 109   2
-##          1  51   9
-##                                           
-##                Accuracy : 0.6901          
-##                  95% CI : (0.6149, 0.7584)
-##     No Information Rate : 0.9357          
-##     P-Value [Acc &gt; NIR] : 1               
-##                                           
-##                   Kappa : 0.1625          
-##                                           
-##  Mcnemar&#39;s Test P-Value : 4.301e-11       
-##                                           
-##             Sensitivity : 0.81818         
-##             Specificity : 0.68125         
-##          Pos Pred Value : 0.15000         
-##          Neg Pred Value : 0.98198         
-##              Prevalence : 0.06433         
-##          Detection Rate : 0.05263         
-##    Detection Prevalence : 0.35088         
-##       Balanced Accuracy : 0.74972         
-##                                           
-##        &#39;Positive&#39; Class : 1               
-## </code></pre>
-<pre class="r"><code>xgboost_numeric_reduced$f2</code></pre>
-<pre><code>## [1] 0.4326923</code></pre>
+<pre class="r"><code>xgboost_reduced$f2</code></pre>
+<pre><code>## [1] 0.3703704</code></pre>
+<pre class="r"><code>xgboost_reduced$auc</code></pre>
+<pre><code>## Area under the curve: 0.6886</code></pre>
+<pre class="r"><code>## Using all features
+
+total_preds &lt;- as.integer(dt$preds) + as.integer(rf$preds) + as.integer(svm$preds) + as.integer(adaboost$preds) + as.integer(xgboost$preds) - 5
+total_preds &lt;- as.integer(total_preds &gt; 2.5)
+factor_preds &lt;- factor(total_preds, ordered=TRUE)
+
+acc &lt;- compute_accuracy(total_preds, test_labels)
+f2 &lt;- fScore(actual=as.integer(test_labels) - 1, predicted=total_preds, beta=2)
+roc &lt;- roc(response = test_labels, predictor = factor_preds)</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1</code></pre>
+<pre><code>## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>auc &lt;- auc(test_labels, factor_preds)</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1
+## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>conf_matrix &lt;- caret::confusionMatrix(data=factor_preds, reference=test_labels, positive=&quot;1&quot;)
+
+## Using reduced features
+
+total_preds_reduced &lt;- as.integer(dt_reduced$preds) + as.integer(rf_reduced$preds) + as.integer(svm_reduced$preds) + as.integer(adaboost_reduced$preds) + as.integer(xgboost_reduced$preds) - 5
+total_preds_reduced &lt;- as.integer(total_preds_reduced &gt; 2.5)
+factor_preds_reduced &lt;- factor(total_preds_reduced, ordered=TRUE)
+
+acc_reduced &lt;- compute_accuracy(total_preds_reduced, test_labels)
+f2_reduced &lt;- fScore(actual=as.integer(test_labels) - 1, predicted=total_preds_reduced, beta=2)
+roc_reduced &lt;- roc(response = test_labels, predictor = factor_preds_reduced)</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1
+## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>auc_reduced &lt;- auc(test_labels, factor_preds_reduced)</code></pre>
+<pre><code>## Setting levels: control = 0, case = 1
+## Setting direction: controls &lt; cases</code></pre>
+<pre class="r"><code>conf_matrix_reduced &lt;- caret::confusionMatrix(data=factor_preds_reduced, reference=test_labels, positive=&quot;1&quot;)</code></pre>
 </div>
 </div>
 

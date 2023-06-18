@@ -1,9 +1,33 @@
-1. Remove similar (medically) features
-2. Run the models and record the results
+Preprocessing comments:
+
+	1. Eliminate samples with no label: 
+		straighforward
+	2. Eliminate features with too many missing values:
+		keep features with maximum 25% missing values -> not much sense in playing around with this
+	3. Eliminate samples with too many missing values
+		keep samples with less than 90 missing values -> 50 is also sensible based on the histogram but shouldn't really change much either, also don't want to
+								 throw away a lot of samples
+	4. Split the dataset into train/test
+		train/test partition but it's pretty standard
+	5. Impute missing values
+		number of imputed datasets doesn't seem that important
+	6.1. Eliminate features with near zero variance
+		freqCut = 95/5 default, maybe worth checking out
+	6.2. Eliminate highly correlated features
+		correlation_method = spearman, check it out but not that important
+		correlation_threshold = 0.8 play around a bit
+
+---------------------------------------------------------------------------------------------------------------------
+
+TODOs:
+	Research soft voting
+
+
+
+
 
 
 Later:
 
-1. Run rfe many times and keep the features that repeat at about 50% of the runs
 2. Many runs that check the randomness
 3. Performance report

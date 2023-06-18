@@ -6,10 +6,15 @@
 **/.RData
 **/.RDataTmp
 
+# Unwanted file types
 # *.html
-dataset/
-useful/
 *.docx
 *.xlsx
 *.pdf
 *.pptx
+*.txt
+
+
+dataset/
+useful/
+test*

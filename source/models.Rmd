@@ -3,6 +3,7 @@ title: "Model development"
 output:
   html_document:
     df_print: paged
+  pdf_document: default
 ---
 
 ```{r, imports, echo=FALSE, include=FALSE}
@@ -24,6 +25,9 @@ library(kernlab)
 library(ramify)
 library(Matrix)
 library(MLmetrics)
+library(pROC)
+library(hash)
+library(numbers)
 ```
 
 Initializing and loading the preprocessed, clean dataset which includes:
@@ -72,15 +76,28 @@ data <- final_features[[1]]
 train_features <- data[train_indices, ]
 test_features <- data[-train_indices, ]
 
+new_train_features <- train_features[ , !names(train_features) %in% 
+                                    c('Emot_Fun_QLQ30.0', 'Emot_Fun_QLQ30.3', 'nccn_distress_thermometer.0', 'nccn_distress_thermometer.3')]
+new_test_features <- test_features[ , !names(test_features) %in% 
+                                    c('Emot_Fun_QLQ30.0', 'Emot_Fun_QLQ30.3', 'nccn_distress_thermometer.0', 'nccn_distress_thermometer.3')]
+
+#### This should be commented out if we don't want to remove the above features
+# train_features <- new_train_features
+# test_features <- new_test_features
+
 train_labels <- new_final_label[train_indices]
 test_labels <- new_final_label[-train_indices]
 
-one_hot_train_features <- model.matrix(~ . - 1, data = train_features)
-one_hot_test_features <- model.matrix(~ . - 1, data = test_features)
-# yInd <- data.frame(model.matrix.lm(Depression_HADS_clusters ~ ., data = ytrain[,-1], na.action = "na.pass"))[,-1]
+dummy <- dummyVars("~.", data = train_features)
+one_hot_train_features <- data.frame(predict(dummy, newdata = train_features))
+one_hot_test_features <- data.frame(predict(dummy, newdata = test_features))
+  
+  
+# ! Temporarily commented out for different approach
 
-numeric_train_features <- train_features %>% select_if(is.numeric)
-numeric_test_features <- test_features %>% select_if(is.numeric)
+# one_hot_train_features <- model.matrix(~ . - 1, data = train_features)
+# one_hot_test_features <- model.matrix(~ . - 1, data = test_features)
+# yInd <- data.frame(model.matrix.lm(Depression_HADS_clusters ~ ., data = ytrain[,-1], na.action = "na.pass"))[,-1]
 
 ```
 
@@ -103,60 +120,119 @@ rfe_control <- rfeControl(functions = myFuncs,
 
 ## Rfe on initial features
 
-# set.seed(1)
-rfe <- rfe(train_features, train_labels,
-           sizes = rfe_sizes,
-           rfeControl = rfe_control,
-           metric = metric,
-           ntree = rfe_trees)
-train_reduced <- train_features[, rfe$optVariables]
-test_reduced <- test_features[, rfe$optVariables]
+rfe_results <- list()
+features_dict <- hash()
+for (i in 1:rfe_iterations) {
+  rfe <- rfe(train_features, train_labels,
+                         sizes = rfe_sizes,
+                         rfeControl = rfe_control,
+                         metric = metric,
+                         ntree = rfe_trees)
+  rfe_results[[i]] <- rfe
+  
+  # Loop through the features chosen
+  for (feature in rfe$optVariables) {
+    if (has.key(feature, features_dict)) {
+      # Feature has been seen at least once
+      features_dict[[feature]] <- features_dict[[feature]] + 1
+    } else {
+      # Newly considered feature
+      features_dict[[feature]] <- 1
+    }
+  }
+}
+
+chosen_features <- c()
+for (feature in keys(features_dict)) {
+  if (features_dict[[feature]] >= div(rfe_iterations, 2)) {
+    chosen_features <- append(chosen_features, feature)
+  }
+}
+train_reduced <- train_features[, chosen_features]
+test_reduced <- test_features[, chosen_features]
 
 ## Rfe on one_hot_encoded features
 
-rfe_one_hot <- rfe(one_hot_train_features, train_labels,
-                   sizes = rfe_sizes,
-                   rfeControl = rfe_control,
-                   metric = metric,
-                   ntree = rfe_trees)
-one_hot_train_reduced <- one_hot_train_features[, rfe_one_hot$optVariables]
-one_hot_test_reduced <- one_hot_test_features[, rfe_one_hot$optVariables]
+rfe_one_hot_results <- list()
+one_hot_features_dict <- hash()
+for (i in 1:rfe_iterations) {
+  rfe <- rfe(one_hot_train_features, train_labels,
+                         sizes = rfe_sizes,
+                         rfeControl = rfe_control,
+                         metric = metric,
+                         ntree = rfe_trees)
+  rfe_one_hot_results[[i]] <- rfe
+  
+  # Loop through the features chosen
+  for (feature in rfe$optVariables) {
+    if (has.key(feature, one_hot_features_dict)) {
+      # Feature has been seen at least once
+      one_hot_features_dict[[feature]] <- one_hot_features_dict[[feature]] + 1
+    } else {
+      # Newly considered feature
+      one_hot_features_dict[[feature]] <- 1
+    }
+  }
+}
 
-## Rfe on numeric_features
+one_hot_chosen_features <- c()
+for (feature in keys(one_hot_features_dict)) {
+  if (one_hot_features_dict[[feature]] >= rfe_cutoff) {
+    one_hot_chosen_features <- append(one_hot_chosen_features, feature)
+  }
+}
 
-rfe_numeric <- rfe(numeric_train_features, train_labels,
-                   sizes = rfe_sizes,
-                   rfeControl = rfe_control,
-                   metric = metric,
-                   ntree = rfe_trees)
-numeric_train_reduced <- numeric_train_features[, rfe_numeric$optVariables]
-numeric_test_reduced <- numeric_test_features[, rfe_numeric$optVariables]
+for (name in one_hot_chosen_features) {
+  if (!(name %in% names(one_hot_train_features))) {
+    print(name)
+  }
+}
+
+one_hot_train_reduced <- one_hot_train_features[, one_hot_chosen_features]
+one_hot_test_reduced <- one_hot_test_features[, one_hot_chosen_features]
 
 ```
 
-```{r}
+```{r, rfe_results, echo=TRUE}
 
-plot(rfe,type = c("g", "o"))
-plot(rfe_one_hot,type = c("g", "o"))
-plot(rfe_numeric,type = c("g", "o"))
+features_list <- list()
+for (key in keys(features_dict)) {
+  features_list[[key]] <- features_dict[[key]]
+}
+sorted_indices <- c(order(unlist(features_list), decreasing=TRUE))
+sorted_features <- features_list[sorted_indices]
+sorted_chosen <- sorted_features[sorted_features >= rfe_cutoff]
+sorted_left <- sorted_features[sorted_features < rfe_cutoff & sorted_features > 2]
 
-# xyplot(rfe,type = c("g", "p", "smooth"))
+cat(paste(names(sorted_chosen), sorted_chosen, sep = ": ", collapse = "\n"))
+cat('\n')
+cat('------------------------------------------------------------------------------')
+cat('\n')
+cat(paste(names(sorted_left), sorted_left, sep = ": ", collapse = "\n"))
+
+cat('\n\n\n')
+cat('------------------------------------------------------------------------------')
+cat('\n\n\n')
+
+one_hot_features_list <- list()
+for (key in keys(one_hot_features_dict)) {
+  one_hot_features_list[[key]] <- one_hot_features_dict[[key]]
+}
+one_hot_sorted_indices <- c(order(unlist(one_hot_features_list), decreasing=TRUE))
+one_hot_sorted_features <- one_hot_features_list[one_hot_sorted_indices]
+one_hot_sorted_chosen <- one_hot_sorted_features[one_hot_sorted_features >= rfe_cutoff]
+one_hot_sorted_left <- one_hot_sorted_features[one_hot_sorted_features < rfe_cutoff & one_hot_sorted_features > 2]
+
+cat(paste(names(one_hot_sorted_chosen), one_hot_sorted_chosen, sep = ": ", collapse = "\n"))
+cat('\n')
+cat('------------------------------------------------------------------------------')
+cat('\n')
+cat(paste(names(one_hot_sorted_left), one_hot_sorted_left, sep = ": ", collapse = "\n"))
 
 ```
-
-```{r}
-
-rfe$optVariables
-print('------------------------')
-rfe_one_hot$optVariables
-print('------------------------')
-rfe_numeric$optVariables
-
-```
-
 # Models
 
-Run the wanted model using all the combinations of the hyperparameters in the respective grid, find the optimal model and evaluate it on the test set. We try both the full-featured dataset and the reduced one
+Run the wanted model using all the combinations of the hyperparameters in the respective grid, find the optimal model and evaluate it on the test set. We try both the full-featured dataset where there are no limitations. We try the one-hot encoded dataset where we can't use factors.
 
 ```{r, train_control, echo=TRUE}
 
@@ -164,9 +240,7 @@ Run the wanted model using all the combinations of the hyperparameters in the re
 # and the appropriate summary function for the metric (f2)
 ctrl <- trainControl(method = "cv", number=k_fold,
                      summaryFunction = f2_summary,
-                     # summaryFunction = defaultSummary,
-                     # sampling = sampling_method,
-                     sampling="down",
+                     sampling = sampling_method,
                      verboseIter=FALSE
 )
 
@@ -181,28 +255,17 @@ gs <- data.frame(cp = c(0.001, 0.005, 0.01, 0.05, 0.1))
 
 # All features
 set.seed(1)
-dt_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rpart", ctrl)
-dt_results$conf_matrix
-dt_results$f2
-
+dt <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rpart", ctrl)
+dt$conf_matrix
+dt$f2
+dt$auc
 
 # Reduced features
 set.seed(1)
 dt_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rpart", ctrl)
 dt_reduced$conf_matrix
 dt_reduced$f2
-
-# One_hot features
-set.seed(1)
-dt_one_hot <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="rpart", ctrl)
-dt_one_hot$conf_matrix
-dt_one_hot$f2
-
-# One_hot reduced features
-set.seed(1)
-dt_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="rpart", ctrl)
-dt_one_hot_reduced$conf_matrix
-dt_one_hot_reduced$f2
+dt_reduced$auc
 
 ```
 
@@ -215,53 +278,37 @@ gs <- data.frame(mtry = c(default - 10, default - 5, default, default + 5, defau
 
 # All features
 set.seed(1)
-rf_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rf", ctrl)
-rf_results$conf_matrix
-rf_results$f2
+rf <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rf", ctrl)
+rf$conf_matrix
+rf$f2
+rf$auc
 
 # Appropriate upper limit
 default <- round(sqrt(ncol(train_reduced)))
 gs <- data.frame(mtry = c(default, default + 2, default + 4, default + 6))
 
-# # Reduced features
-# set.seed(1)
-# rf_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rf", ctrl)
-# rf_reduced$conf_matrix
-# rf_reduced$f2
-
-# One_hot features
+# Reduced features
 set.seed(1)
-rf_one_hot <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="rf", ctrl)
-rf_one_hot$conf_matrix
-rf_one_hot$f2
-
-# # One_hot reduced features
-# set.seed(1)
-# rf_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="rf", ctrl)
-# rf_one_hot_reduced$conf_matrix
-# rf_one_hot_reduced$f2
+rf_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rf", ctrl)
+rf_reduced$conf_matrix
+rf_reduced$f2
+rf_reduced$auc
 
 ```
-
-```{r}
-
-
-
-```
-
 
 ## Support vector machines
 
 ```{r, SVM, echo=TRUE}
 
 # One-hot encoded features
-# gs <- expand.grid(C = c(1),
-#                   sigma = c(1 / ncol(one_hot_train_features)),
-#                   Weight = seq(0.5, 2, by=0.5))
-# set.seed(1)
-# svm_one_hot <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="svmRadialWeights", ctrl)
-# svm_one_hot$conf_matrix
-# svm_one_hot$f2
+gs <- expand.grid(C = c(1),
+                  sigma = c(1 / ncol(one_hot_train_features)),
+                  Weight = seq(0.5, 2, by=0.5))
+set.seed(1)
+svm <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="svmRadialWeights", ctrl)
+svm$conf_matrix
+svm$f2
+svm$auc
 
 
 # One-hot reduced features
@@ -269,28 +316,10 @@ gs <- expand.grid(C = c(1),
                   sigma = c(1 / ncol(one_hot_train_reduced)),
                   Weight = seq(0.5, 2, by=0.5))
 set.seed(1)
-svm_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="svmRadialWeights", ctrl)
-svm_one_hot_reduced$conf_matrix
-svm_one_hot_reduced$f2
-
-
-# Numeric features
-gs <- expand.grid(C = c(1),
-                  sigma = c(1 / ncol(numeric_train_features)),
-                  Weight = seq(0.5, 2, by=0.5))
-set.seed(1)
-svm_numeric <- run_model(gs, numeric_train_features, train_labels, numeric_test_features, test_labels, method="svmRadialWeights", ctrl)
-svm_numeric$conf_matrix
-svm_numeric$f2
-
-# Numeric reduced features
-gs <- expand.grid(C = c(1),
-                  sigma = c(1 / ncol(numeric_train_reduced)),
-                  Weight = seq(0.5, 2, by=0.5))
-set.seed(1)
-svm_numeric_reduced <- run_model(gs, numeric_train_reduced, train_labels, numeric_test_reduced, test_labels, method="svmRadialWeights", ctrl)
-svm_numeric_reduced$conf_matrix
-svm_numeric_reduced$f2
+svm_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="svmRadialWeights", ctrl)
+svm_reduced$conf_matrix
+svm_reduced$f2
+svm_reduced$auc
 
 ```
 
@@ -304,27 +333,18 @@ gs <- expand.grid(mfinal = c(10, 20, 50, 100, 150),
 
 # All features
 set.seed(1)
-adaboost_results <- run_model(gs, train_features, train_labels, test_features, test_labels, method="AdaBoost.M1", ctrl)
-adaboost_results$conf_matrix
-adaboost_results$f2
+adaboost <- run_model(gs, train_features, train_labels, test_features, test_labels, method="AdaBoost.M1", ctrl)
+adaboost$conf_matrix
+adaboost$f2
+adaboost$auc
+
 
 # All features reduced
 set.seed(1)
 adaboost_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="AdaBoost.M1", ctrl)
 adaboost_reduced$conf_matrix
 adaboost_reduced$f2
-
-# One_hot features
-set.seed(1)
-adaboost_one_hot <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="AdaBoost.M1", ctrl)
-adaboost_one_hot$conf_matrix
-adaboost_one_hot$f2
-
-# One_hot reduced features
-set.seed(1)
-adaboost_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="AdaBoost.M1", ctrl)
-adaboost_one_hot_reduced$conf_matrix
-adaboost_one_hot_reduced$f2
+adaboost_reduced$auc
 
 ```
 
@@ -343,26 +363,42 @@ gs <- expand.grid(nrounds = c(10, 20, 50, 100),
 
 # One_hot features
 set.seed(1)
-xgboost_one_hot <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="xgbTree", ctrl)
-xgboost_one_hot$conf_matrix
-xgboost_one_hot$f2
+xgboost <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="xgbTree", ctrl)
+xgboost$conf_matrix
+xgboost$f2
+xgboost$auc
 
 # One_hot reduced features
 set.seed(1)
-xgboost_one_hot_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="xgbTree", ctrl)
-xgboost_one_hot_reduced$conf_matrix
-xgboost_one_hot_reduced$f2
+xgboost_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="xgbTree", ctrl)
+xgboost_reduced$conf_matrix
+xgboost_reduced$f2
+xgboost_reduced$auc
 
-# Numeric features
-set.seed(1)
-xgboost_numeric <- run_model(gs, numeric_train_features, train_labels, numeric_test_features, test_labels, method="xgbTree", ctrl)
-xgboost_numeric$conf_matrix
-xgboost_numeric$f2
+```
+## Voting classifier
 
-# Numeric reduced features
-set.seed(1)
-xgboost_numeric_reduced <- run_model(gs, numeric_train_reduced, train_labels, numeric_test_reduced, test_labels, method="xgbTree", ctrl)
-xgboost_numeric_reduced$conf_matrix
-xgboost_numeric_reduced$f2
+```{r, voting_classifier, echo=TRUE}
+
+## Using all features
+voting <- voting_classifier(dt, rf, svm, adaboost, xgboost)
+
+## Using reduced features
+voting <- voting_classifier(dt_reduced, rf_reduced, svm_reduced, adaboost_reduced, xgboost_reduced)
+
+```
+```{r, grouped_results}
+
+# Using all the features
+auc_scores <- c(dt$auc, rf$auc, svm$auc, adaboost$auc, xgboost$auc)
+f2_scores <- c(dt$f2, rf$f2, svm$f2, adaboost$f2, xgboost$f2)
+cat(paste(auc_scores, f2_scores, sep="\t", collapse="\n"))
+
+cat('\n\n')
+
+# Using reduced features
+auc_scores_reduced <- c(dt_reduced$auc, rf_reduced$auc, svm_reduced$auc, adaboost_reduced$auc, xgboost_reduced$auc)
+f2_scores_reduced <- c(dt_reduced$f2, rf_reduced$f2, svm_reduced$f2, adaboost_reduced$f2, xgboost_reduced$f2)
+cat(paste(auc_scores_reduced, f2_scores_reduced, sep="\t", collapse="\n"))
 
 ```

@@ -32,7 +32,7 @@ library(purrr)
 ####  Data loading and variable renaming  ####
 
 # Set the hyperparameters
-source("config.R")
+source("preprocessing_config.R")
 
 setwd(my_path)
 load(dataset_path)
@@ -77,7 +77,7 @@ preprocessing_comments <- append(preprocessing_comments, comment_1)
 missing_values_per_column <- colSums(is.na(features_1))
 hist(missing_values_per_column)
 
-percent_missing = missing_values_per_column / nrow(features_1)
+percent_missing <- missing_values_per_column / nrow(features_1)
 feature_selection <- percent_missing < missing_samples_threshold
 features_2 <- features_1[, feature_selection]
 label_2 <- label_1
@@ -130,6 +130,7 @@ new_label_name <- paste(month_label, "_ptsd", sep="")
 train_indices <- createDataPartition(new_final_label, p=train_size, list=FALSE)
 
 # Unimputed test features/labels to be used on models that can handle it
+# !!!!!!!!!!!!!!!! Not being used right now !!!!!!!!!!!!!!!!
 raw_test_features <- features_3[-train_indices, ]
 raw_test_labels <- new_final_label[-train_indices]
 
