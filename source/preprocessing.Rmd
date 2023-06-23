@@ -1,4 +1,9 @@
-## ---- imports, echo=FALSE, include=FALSE---------------------------------------------------------------------------------------------------------------------
+---
+title: "Data preprocessing"
+output: html_notebook
+---
+
+```{r, imports, echo=FALSE, include=FALSE}
 
 library(mice)
 library(dplyr)
@@ -6,9 +11,11 @@ library(corrplot)
 library(caret)
 library(purrr)
 
+```
 
+# Data loading and variable renaming
 
-## ------------------------------------------------------------------------------------------------------------------------------------------------------------
+```{r}
 
 # Set the hyperparameters
 source("preprocessing_config.R")
@@ -32,9 +39,15 @@ label <- potential_labels[, label_name]
 # during every step
 preprocessing_comments <- list()
 
+```
 
+# 1. Eliminate samples with no label
 
-## ------------------------------------------------------------------------------------------------------------------------------------------------------------
+This has to happen before step 2, because I don't wanna count as missing
+values of a feature the values of a sample that has no label and is therefore
+useless.
+
+```{r}
 
 features_1 <- potential_features[!is.na(label), ]
 label_1 <- label[!is.na(label)]
@@ -46,9 +59,11 @@ comment_1 <- sprintf("Step 1: Eliminated %i samples with no %s label",
                      nrow(potential_features) - nrow(features_1), label_name)
 preprocessing_comments <- append(preprocessing_comments, comment_1)
 
+```
 
+# 2. Eliminate features with too many missing values
 
-## ------------------------------------------------------------------------------------------------------------------------------------------------------------
+```{r}
 
 missing_values_per_column <- colSums(is.na(features_1))
 hist(missing_values_per_column)
@@ -72,9 +87,15 @@ if (length(temp) != 0) {
 }
 preprocessing_comments <- append(preprocessing_comments, comment_2)
 
+```
 
+# 3. Eliminate samples with too many missing values
 
-## ------------------------------------------------------------------------------------------------------------------------------------------------------------
+The histogram showed that the ideal points to cut samples with missing
+features are 50 and 90. Due to having few samples compared to our features,
+we decide to keep the higher threshold.
+
+```{r}
 
 missing_values_per_row <- rowSums(is.na(features_2))
 hist(missing_values_per_row)
@@ -97,9 +118,10 @@ if (length(temp) != 0) {
 }
 preprocessing_comments <- append(preprocessing_comments, comment_3)
 
+```
+# 4. Split the dataset into train/test
 
-
-## ------------------------------------------------------------------------------------------------------------------------------------------------------------
+```{r}
 
 # Threshold the label
 new_final_label <- as.factor(as.integer(final_label >= ptsd_threshold))
@@ -113,9 +135,15 @@ train_indices <- createDataPartition(new_final_label, p=train_size, list=FALSE)
 comment_4 <- sprintf("Step 4: Split the dataset into train/test with a %.2f ratio", train_size)
 preprocessing_comments <- append(preprocessing_comments, comment_4)
 
+```
 
+# 5. Impute missing values
 
-## ------------------------------------------------------------------------------------------------------------------------------------------------------------
+I choose to impute the missing values before eliminating low variance features,
+because the features I might eliminate (despite the low variance) can impact
+the imputation.
+
+```{r}
 
 # I impute using only the train samples but apply the imputation process to the test set as well.
 ignore_vector <- rep(TRUE, nrow(features_3))
@@ -132,9 +160,16 @@ for (i in 1 : (number_of_imputed_datasets + 1)) {
 comment_5 <- sprintf("Step 5: Used Multiple Imputation Chained Equations (MICE) to impute %i different datasets", number_of_imputed_datasets)
 preprocessing_comments <- append(preprocessing_comments, comment_5)
 
+```
 
+We plan to use all the different imputed datasets to predict using our model and
+afterwards average the results. The idea is that each imputed dataset is an approach
+of the "real" dataset (many values of which are unknown) and using all the approaches
+will get us to a more realistic result
 
-## ------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 6. Imputed datasets' preprocessing
+
+```{r}
 
 final_features = list()
 total_near_zero_var_indices <- c()
@@ -210,9 +245,11 @@ if (is.null(temp_comments)) {
 comment_6 <- paste(comment_6_1, comment_6_2, comment_6_3, sep="--------------------------------------------\n")
 preprocessing_comments <- append(preprocessing_comments, comment_6)
 
+```
 
+# Final save file which will be used to train and evaluate the models
 
-## ------------------------------------------------------------------------------------------------------------------------------------------------------------
+```{r}
 
 setwd("D:/Κωνσταντίνος Data/Σχολής/Διπλωματική Εργασία/Main/dataset/preprocessed_results")
 
@@ -227,4 +264,4 @@ if (val_size != 0) {
 
 setwd("D:/Κωνσταντίνος Data/Σχολής/Διπλωματική Εργασία/Main/source")
 
-
+```

@@ -1,9 +1,6 @@
 ---
 title: "Model development"
-output:
-  html_document:
-    df_print: paged
-  pdf_document: default
+output: html_notebook
 ---
 
 ```{r, imports, echo=FALSE, include=FALSE}
@@ -32,22 +29,22 @@ library(numbers)
 
 Initializing and loading the preprocessed, clean dataset which includes:
 
-1.  final_train_features: list of m datasets created during preprocessing (containing only the features)
-2.  train_labels: the labels of the train datasets (same for all of them)
-3.  test_features: dataframe with the features to be used for testing
-4.  test_labels: the labels to be used for evaluating the models
-5.  preprocessing_comments: detailed comments about the preprocessing procedure Use function print_comments to pretty print them
-6.  config_list: named list containing the parameters used to preprocess the data-set
+1. final_features:            list of m datasets created during preprocessing (containing only the features)
+2. new_final_label:           the labels (same for all the datasets)
+3. new_label_name:            the label column name
+4. train_indices:             the indices of the samples that belong to the train set
+5. preprocessing_comments:    detailed comments about the preprocessing procedure
+6. config_list:               named list containing the parameters used to preprocess the data-set
 
 ```{r, load_data, echo=TRUE}
 
 # Absolute path
 my_path <- r"{D:\Κωνσταντίνος Data\Σχολής\Διπλωματική Εργασία\Main\source}"
 setwd(my_path)
+
 # Relative path
 clean_data_folder <- r"{..\dataset\preprocessed_results}"
-data_file <- r"{\M6_1.RData}"
-# label_name <- "M6_ptsd"
+data_file <- r"{\M6_4.RData}"
 data_path <- paste(clean_data_folder, data_file, sep="")
 
 load(data_path)
@@ -71,33 +68,24 @@ source("models_aux.R")
 
 data <- final_features[[1]]
 
+if (ignore) {
+  new_data <- data[ , !names(data) %in% ignored_features]
+} else {
+  new_data <- data
+}
+
 # Split the dataset into train/test (technically the split has happened during the preprocessing,
 # we are just grouping together)
-train_features <- data[train_indices, ]
-test_features <- data[-train_indices, ]
-
-new_train_features <- train_features[ , !names(train_features) %in% 
-                                    c('Emot_Fun_QLQ30.0', 'Emot_Fun_QLQ30.3', 'nccn_distress_thermometer.0', 'nccn_distress_thermometer.3')]
-new_test_features <- test_features[ , !names(test_features) %in% 
-                                    c('Emot_Fun_QLQ30.0', 'Emot_Fun_QLQ30.3', 'nccn_distress_thermometer.0', 'nccn_distress_thermometer.3')]
-
-#### This should be commented out if we don't want to remove the above features
-# train_features <- new_train_features
-# test_features <- new_test_features
+train_features <- new_data[train_indices, ]
+test_features <- new_data[-train_indices, ]
 
 train_labels <- new_final_label[train_indices]
 test_labels <- new_final_label[-train_indices]
 
-dummy <- dummyVars("~.", data = train_features)
+# One-hot-encode our features for the models that can't handle factors
+dummy <- dummyVars("~.", data = new_data)
 one_hot_train_features <- data.frame(predict(dummy, newdata = train_features))
 one_hot_test_features <- data.frame(predict(dummy, newdata = test_features))
-  
-  
-# ! Temporarily commented out for different approach
-
-# one_hot_train_features <- model.matrix(~ . - 1, data = train_features)
-# one_hot_test_features <- model.matrix(~ . - 1, data = test_features)
-# yInd <- data.frame(model.matrix.lm(Depression_HADS_clusters ~ ., data = ytrain[,-1], na.action = "na.pass"))[,-1]
 
 ```
 
@@ -111,11 +99,14 @@ myFuncs$selectSize <- myPickSizeTolerance
 if (rfe_sampling_method == "down") {
   myFuncs$fit <- rf_fit_down
 }
-rfe_control <- rfeControl(functions = myFuncs,
-                          method = "repeatedcv",
-                          repeats = 5,
-                          verbose = FALSE,
-                          returnResamp = "all")
+rfe_control <- rfeControl(
+  functions = myFuncs,
+  method = "repeatedcv",
+  number = k_fold,
+  repeats = 5,
+  verbose = FALSE,
+  returnResamp = "all"
+)
 
 
 ## Rfe on initial features
@@ -144,12 +135,13 @@ for (i in 1:rfe_iterations) {
 
 chosen_features <- c()
 for (feature in keys(features_dict)) {
-  if (features_dict[[feature]] >= div(rfe_iterations, 2)) {
+  if (features_dict[[feature]] >= rfe_cutoff) {
     chosen_features <- append(chosen_features, feature)
   }
 }
 train_reduced <- train_features[, chosen_features]
 test_reduced <- test_features[, chosen_features]
+
 
 ## Rfe on one_hot_encoded features
 
@@ -181,13 +173,6 @@ for (feature in keys(one_hot_features_dict)) {
     one_hot_chosen_features <- append(one_hot_chosen_features, feature)
   }
 }
-
-for (name in one_hot_chosen_features) {
-  if (!(name %in% names(one_hot_train_features))) {
-    print(name)
-  }
-}
-
 one_hot_train_reduced <- one_hot_train_features[, one_hot_chosen_features]
 one_hot_test_reduced <- one_hot_test_features[, one_hot_chosen_features]
 
@@ -216,7 +201,7 @@ cat('\n\n\n')
 
 one_hot_features_list <- list()
 for (key in keys(one_hot_features_dict)) {
-  one_hot_features_list[[key]] <- one_hot_features_dict[[key]]
+  one_hot_features_list[[key]] <- one_hot_features_dict[[key]] 
 }
 one_hot_sorted_indices <- c(order(unlist(one_hot_features_list), decreasing=TRUE))
 one_hot_sorted_features <- one_hot_features_list[one_hot_sorted_indices]
@@ -232,16 +217,19 @@ cat(paste(names(one_hot_sorted_left), one_hot_sorted_left, sep = ": ", collapse 
 ```
 # Models
 
-Run the wanted model using all the combinations of the hyperparameters in the respective grid, find the optimal model and evaluate it on the test set. We try both the full-featured dataset where there are no limitations. We try the one-hot encoded dataset where we can't use factors.
+Run the wanted model using all the combinations of the hyperparameters in the respective grid, find the optimal model and evaluate it on the test set. We try the full-featured dataset where there are no limitations by the model. We try the one-hot encoded dataset where we can't use factors.
 
 ```{r, train_control, echo=TRUE}
 
-# Use k-fold cross validation to evaluate the models
-# and the appropriate summary function for the metric (f2)
-ctrl <- trainControl(method = "cv", number=k_fold,
-                     summaryFunction = f2_summary,
-                     sampling = sampling_method,
-                     verboseIter=FALSE
+# Use repeated k-fold cross validation to evaluate the models
+# and the appropriate summary function for the metric (f2/auc)
+ctrl <- trainControl(
+  method = "repeatedcv",
+  number = k_fold,
+  repeats = 5,
+  summaryFunction = f2_summary,
+  sampling = sampling_method,
+  verboseIter = FALSE
 )
 
 ```
@@ -251,21 +239,14 @@ ctrl <- trainControl(method = "cv", number=k_fold,
 ```{r, dt, echo=TRUE}
 
 gs <- data.frame(cp = c(0.001, 0.005, 0.01, 0.05, 0.1))
-# gs <- data.frame(cp = c(0.001))
 
 # All features
 set.seed(1)
 dt <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rpart", ctrl)
-dt$conf_matrix
-dt$f2
-dt$auc
 
 # Reduced features
 set.seed(1)
 dt_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rpart", ctrl)
-dt_reduced$conf_matrix
-dt_reduced$f2
-dt_reduced$auc
 
 ```
 
@@ -279,9 +260,6 @@ gs <- data.frame(mtry = c(default - 10, default - 5, default, default + 5, defau
 # All features
 set.seed(1)
 rf <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rf", ctrl)
-rf$conf_matrix
-rf$f2
-rf$auc
 
 # Appropriate upper limit
 default <- round(sqrt(ncol(train_reduced)))
@@ -290,9 +268,6 @@ gs <- data.frame(mtry = c(default, default + 2, default + 4, default + 6))
 # Reduced features
 set.seed(1)
 rf_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rf", ctrl)
-rf_reduced$conf_matrix
-rf_reduced$f2
-rf_reduced$auc
 
 ```
 
@@ -306,10 +281,6 @@ gs <- expand.grid(C = c(1),
                   Weight = seq(0.5, 2, by=0.5))
 set.seed(1)
 svm <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="svmRadialWeights", ctrl)
-svm$conf_matrix
-svm$f2
-svm$auc
-
 
 # One-hot reduced features
 gs <- expand.grid(C = c(1),
@@ -317,9 +288,6 @@ gs <- expand.grid(C = c(1),
                   Weight = seq(0.5, 2, by=0.5))
 set.seed(1)
 svm_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="svmRadialWeights", ctrl)
-svm_reduced$conf_matrix
-svm_reduced$f2
-svm_reduced$auc
 
 ```
 
@@ -334,17 +302,10 @@ gs <- expand.grid(mfinal = c(10, 20, 50, 100, 150),
 # All features
 set.seed(1)
 adaboost <- run_model(gs, train_features, train_labels, test_features, test_labels, method="AdaBoost.M1", ctrl)
-adaboost$conf_matrix
-adaboost$f2
-adaboost$auc
-
 
 # All features reduced
 set.seed(1)
 adaboost_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="AdaBoost.M1", ctrl)
-adaboost_reduced$conf_matrix
-adaboost_reduced$f2
-adaboost_reduced$auc
 
 ```
 
@@ -364,16 +325,10 @@ gs <- expand.grid(nrounds = c(10, 20, 50, 100),
 # One_hot features
 set.seed(1)
 xgboost <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="xgbTree", ctrl)
-xgboost$conf_matrix
-xgboost$f2
-xgboost$auc
 
 # One_hot reduced features
 set.seed(1)
 xgboost_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="xgbTree", ctrl)
-xgboost_reduced$conf_matrix
-xgboost_reduced$f2
-xgboost_reduced$auc
 
 ```
 ## Voting classifier
@@ -390,6 +345,7 @@ voting <- voting_classifier(dt_reduced, rf_reduced, svm_reduced, adaboost_reduce
 ```{r, grouped_results}
 
 # Using all the features
+
 auc_scores <- c(dt$auc, rf$auc, svm$auc, adaboost$auc, xgboost$auc)
 f2_scores <- c(dt$f2, rf$f2, svm$f2, adaboost$f2, xgboost$f2)
 cat(paste(auc_scores, f2_scores, sep="\t", collapse="\n"))

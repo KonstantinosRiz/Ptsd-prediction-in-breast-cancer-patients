@@ -20,6 +20,19 @@ Preprocessing comments:
 ---------------------------------------------------------------------------------------------------------------------
 
 TODOs:
+
+	Group results from models into a named dataframe
+
+	Review models and run the results for all the imputed datasets: gather and average results
+	Run for all labels (months)
+
+
+
+	Many runs that check the randomness:
+		maybe save the results (in some form?) at the disk and then load them all together and average them
+
+
+	MAYBE: remove correlated features that are factors (and not only numeric ones)
 	Research soft voting
 
 
@@ -28,6 +41,4 @@ TODOs:
 
 
 Later:
-
-2. Many runs that check the randomness
-3. Performance report
+	3. Performance report

@@ -7,7 +7,7 @@
 **/.RDataTmp
 
 # Unwanted file types
-# *.html
+*.html
 *.docx
 *.xlsx
 *.pdf
