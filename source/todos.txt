@@ -20,10 +20,15 @@ Preprocessing comments:
 ---------------------------------------------------------------------------------------------------------------------
 
 TODOs:
+	Talked about with gestam:
+		1. visualize results (eg barplots)	-->	DONE
+		2. split train-test based on hospitals
+		3. explainable ai plots
+		4. discuss contents of diploma
+		5. research hyper-parameters of config on the internet
 
-	Group results from models into a named dataframe
 
-	Review models and run the results for all the imputed datasets: gather and average results
+	Review models and run the results for all the imputed datasets: gather and average results	-->	DONE
 	Run for all labels (months)
 
 

@@ -49,7 +49,7 @@ run_model <- function(gs, train_features, train_labels, test_features, test_labe
   
   acc <- compute_accuracy(preds, test_labels)
   f2 <- compute_f2(preds, test_labels)
-  roc <- roc(response = test_labels, predictor = factor_preds)
+  roc <- roc(response = test_labels, predictor = factor_preds, levels=c(0,1), direction="<")
   auc <- auc(test_labels, factor_preds)
   
   grid_results <- results$results
@@ -86,7 +86,7 @@ voting_classifier <- function(...) {
   
   acc <- compute_accuracy(total_preds, test_labels)
   f2 <- fScore(actual=as.integer(test_labels) - 1, predicted=total_preds, beta=2)
-  roc <- roc(response = test_labels, predictor = factor_preds)
+  roc <- roc(response = test_labels, predictor = factor_preds, , levels=c(0,1), direction="<")
   auc <- auc(test_labels, factor_preds)
   conf_matrix <- caret::confusionMatrix(data=factor_preds, reference=test_labels, positive="1")
   
@@ -97,6 +97,39 @@ voting_classifier <- function(...) {
     "roc" = roc,
     "auc" = round(auc, digits=2),
     "conf_matrix" = conf_matrix
+  )
+}
+
+visualize <- function(auc_scores, f2_scores, title) {
+  # Assumptions:
+  # auc_scores and f2_scores have length 6 for our 6 classifiers:
+  # dt, rf, svm, adaboost, xgboost, voting
+  
+  original_classifier <- c('dt', 'rf', 'svm', 'adaboost', 'xgboost', 'voting')
+  classifier <- rep(original_classifier, 2)
+  no_class <- length(original_classifier)
+  metric_name <- c(rep('auc', no_class), rep('f2', no_class))
+  
+  score <- c(auc_scores, f2_scores)
+  
+  # Pretty results df
+  results_df_pretty <- data.frame(original_classifier, auc_scores, f2_scores)
+  
+  # Df for visualization
+  results_df <- data.frame(classifier, metric_name, score)
+  results_df$classifier <- factor(results_df$classifier, levels=original_classifier)
+  
+  results_plot <- ggplot(
+    data = results_df,
+    mapping = aes(x = classifier, y = score, fill = metric_name)
+  ) +
+    geom_col(position = 'dodge') +
+    scale_fill_manual(values = c('#417FBA', '#F2555E')) +
+    ggtitle(title)
+  
+  list(
+    'plot' = results_plot,
+    'df' = results_df_pretty
   )
 }
 

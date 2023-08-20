@@ -25,6 +25,7 @@ library(MLmetrics)
 library(pROC)
 library(hash)
 library(numbers)
+library(ggplot2)
 ```
 
 Initializing and loading the preprocessed, clean dataset which includes:
@@ -226,7 +227,7 @@ Run the wanted model using all the combinations of the hyperparameters in the re
 ctrl <- trainControl(
   method = "repeatedcv",
   number = k_fold,
-  repeats = 5,
+  repeats = repeats,
   summaryFunction = f2_summary,
   sampling = sampling_method,
   verboseIter = FALSE
@@ -339,22 +340,64 @@ xgboost_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_te
 voting <- voting_classifier(dt, rf, svm, adaboost, xgboost)
 
 ## Using reduced features
-voting <- voting_classifier(dt_reduced, rf_reduced, svm_reduced, adaboost_reduced, xgboost_reduced)
+voting_reduced <- voting_classifier(dt_reduced, rf_reduced, svm_reduced, adaboost_reduced, xgboost_reduced)
 
 ```
+
 ```{r, grouped_results}
+
+original_classifier <- c('dt', 'rf', 'svm', 'adaboost', 'xgboost', 'voting')
+classifier <- rep(original_classifier, 2)
+no_class <- length(original_classifier)
+metric <- c(rep('auc', no_class), rep('f2', no_class))
 
 # Using all the features
 
-auc_scores <- c(dt$auc, rf$auc, svm$auc, adaboost$auc, xgboost$auc)
-f2_scores <- c(dt$f2, rf$f2, svm$f2, adaboost$f2, xgboost$f2)
-cat(paste(auc_scores, f2_scores, sep="\t", collapse="\n"))
+auc_scores <- c(dt$auc, rf$auc, svm$auc, adaboost$auc, xgboost$auc, voting$auc)
+f2_scores <- c(dt$f2, rf$f2, svm$f2, adaboost$f2, xgboost$f2, voting$f2)
+score <- c(auc_scores, f2_scores)
 
-cat('\n\n')
+# Pretty results df
+results_df_pretty <- data.frame(original_classifier, auc_scores, f2_scores)
+
+# Df for visualization
+results_df <- data.frame(classifier, metric, score)
+results_df$classifier <- factor(results_df$classifier, levels=original_classifier)
+
+results_plot <- ggplot(
+  data = results_df,
+  mapping = aes(x = classifier, y = score, fill = metric)
+) +
+  geom_col(position = 'dodge') +
+  scale_fill_manual(values = c('#417FBA', '#F2555E')) +
+  ggtitle('Performance using all features')
 
 # Using reduced features
-auc_scores_reduced <- c(dt_reduced$auc, rf_reduced$auc, svm_reduced$auc, adaboost_reduced$auc, xgboost_reduced$auc)
-f2_scores_reduced <- c(dt_reduced$f2, rf_reduced$f2, svm_reduced$f2, adaboost_reduced$f2, xgboost_reduced$f2)
-cat(paste(auc_scores_reduced, f2_scores_reduced, sep="\t", collapse="\n"))
+
+auc_scores_reduced <- c(dt_reduced$auc, rf_reduced$auc, svm_reduced$auc, adaboost_reduced$auc, xgboost_reduced$auc, voting_reduced$auc)
+f2_scores_reduced <- c(dt_reduced$f2, rf_reduced$f2, svm_reduced$f2, adaboost_reduced$f2, xgboost_reduced$f2, voting_reduced$f2)
+score <- c(auc_scores_reduced, f2_scores_reduced)
+
+# Pretty results df
+results_df_reduced_pretty <- data.frame(original_classifier, auc_scores_reduced, f2_scores_reduced)
+
+# Df for visualization
+results_reduced_df <- data.frame(classifier, metric, score)
+results_reduced_df$classifier <- factor(results_reduced_df$classifier, levels=original_classifier)
+
+results_reduced_plot <- ggplot(
+  data = results_reduced_df,
+  mapping = aes(x = classifier, y = score, fill = metric)
+) +
+  geom_col(position = 'dodge') +
+  scale_fill_manual(values = c('#417FBA', '#F2555E')) +
+  ggtitle('Performance using reduced features')
+
+```
+
+```{r, visualization}
+
+results_plot
+results_reduced_plot
 
 ```

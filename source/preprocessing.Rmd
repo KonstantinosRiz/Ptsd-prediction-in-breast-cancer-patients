@@ -41,6 +41,22 @@ preprocessing_comments <- list()
 
 ```
 
+# 0. If requested ignore features hinted by medics to have overlapping information
+
+```{r}
+
+if (ignore) {
+    features_0 <- potential_features[ , !names(potential_features) %in% ignored_features]
+    
+    # Comment handling
+    comment_0 <- paste('Step 0: Eliminated following features hinted by medics:', paste(ignored_features, collapse=', '), sep='\n')
+    preprocessing_comments <- append(preprocessing_comments, comment_0)
+  } else {
+    features_0 <- potential_features
+  }
+
+```
+
 # 1. Eliminate samples with no label
 
 This has to happen before step 2, because I don't wanna count as missing
@@ -49,7 +65,7 @@ useless.
 
 ```{r}
 
-features_1 <- potential_features[!is.na(label), ]
+features_1 <- features_0[!is.na(label), ]
 label_1 <- label[!is.na(label)]
 
 
@@ -66,10 +82,10 @@ preprocessing_comments <- append(preprocessing_comments, comment_1)
 ```{r}
 
 missing_values_per_column <- colSums(is.na(features_1))
-hist(missing_values_per_column)
+percent_missing_rows <- missing_values_per_column / nrow(features_1)
+hist(percent_missing_rows)
 
-percent_missing <- missing_values_per_column / nrow(features_1)
-feature_selection <- percent_missing < missing_samples_threshold
+feature_selection <- percent_missing_rows <= missing_samples_threshold
 features_2 <- features_1[, feature_selection]
 label_2 <- label_1
 
@@ -91,16 +107,14 @@ preprocessing_comments <- append(preprocessing_comments, comment_2)
 
 # 3. Eliminate samples with too many missing values
 
-The histogram showed that the ideal points to cut samples with missing
-features are 50 and 90. Due to having few samples compared to our features,
-we decide to keep the higher threshold.
-
 ```{r}
 
 missing_values_per_row <- rowSums(is.na(features_2))
-hist(missing_values_per_row)
 
-sample_selection <- missing_values_per_row < missing_features_threshold
+percent_missing_cols <- missing_values_per_row / ncol(features_1)
+hist(percent_missing_cols)
+
+sample_selection <- percent_missing_cols <= missing_features_threshold
 features_3 <- features_2[sample_selection, ]
 final_label <- label_2[missing_values_per_row < missing_features_threshold]
 
@@ -110,8 +124,8 @@ final_label <- label_2[missing_values_per_row < missing_features_threshold]
 temp <- data[names(sample_selection[which(sample_selection == FALSE)]), ]$mrn
 
 if (length(temp) != 0) {
-  comment_3_1 <- sprintf("Step 3: Eliminated following samples with missing values exceeding threshold %i", missing_features_threshold)
-  comment_3_2 <- paste(temp, collapse="\n")
+  comment_3_1 <- sprintf("Step 3: Eliminated following samples with missing values exceeding threshold %f", missing_features_threshold)
+  comment_3_2 <- paste(temp, collapse=", ")
   comment_3 <- paste(comment_3_1, comment_3_2, sep="\n")
 } else {
   comment_3 <- sprintf("Step 2: No samples had enough missing values to be eliminated using threshold %i missing features", missing_features_threshold)
@@ -125,7 +139,6 @@ preprocessing_comments <- append(preprocessing_comments, comment_3)
 
 # Threshold the label
 new_final_label <- as.factor(as.integer(final_label >= ptsd_threshold))
-new_label_name <- paste(month_label, "_ptsd", sep="")
 
 train_indices <- createDataPartition(new_final_label, p=train_size, list=FALSE)
 
@@ -171,7 +184,7 @@ will get us to a more realistic result
 
 ```{r}
 
-final_features = list()
+final_features <- list()
 total_near_zero_var_indices <- c()
 total_highly_correlated_indices <- c()
 to_eliminate_indices <- c()
@@ -181,7 +194,7 @@ for (i in 1:number_of_imputed_datasets) {
   ####  6.1 Eliminate features with very low variance  ####
   
   # Find the low variance indices
-  near_zero_var_indices <- nearZeroVar(features_5[[i]], freqCut=freqCut)
+  near_zero_var_indices <- nearZeroVar(features_5[[i]], freqCut=freqCut, uniqueCut=uniqueCut)
   # Add them to the union that will be eliminated from all datasets
   total_near_zero_var_indices <- union(total_near_zero_var_indices, near_zero_var_indices)
   
