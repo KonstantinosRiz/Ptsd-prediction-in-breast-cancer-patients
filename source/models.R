@@ -23,30 +23,13 @@ library(numbers)
 library(ggplot2)
 
 
-## ---- load_data, echo=TRUE-----------------------------------------------------------------------------------------------------------------------------------
-
-# Absolute path
-my_path <- r"{D:\Κωνσταντίνος Data\Σχολής\Διπλωματική Εργασία\Main\source}"
-setwd(my_path)
-
-# Relative path
-clean_data_folder <- r"{..\dataset\preprocessed_results}"
-data_file <- r"{M6_4.RData}"
-data_path <- paste(clean_data_folder, data_file, sep=r"{\}")
-
-load(data_path)
-
-# Print the preprocessing comments
-cat(paste(preprocessing_comments, collapse="\n\n"))
-
-
-
-## ---- load_code, echo=TRUE-----------------------------------------------------------------------------------------------------------------------------------
+## ---- load_code_and_data, echo=TRUE-----------------------------------------------------------------------------------------------------------------------------------
 
 source("models_config.R")
 source("models_aux.R")
 
-
+load(data_path)
+cat(paste(preprocessing_comments, collapse="\n\n"))
 
 ## ---- split, echo=TRUE---------------------------------------------------------------------------------------------------------------------------------------
 
@@ -64,6 +47,8 @@ final_results$xgboost <- list()
 final_results$xgboost_reduced <- list()
 final_results$voting <- list()
 final_results$voting_reduced <- list()
+final_results$rfe <- list()
+final_results$rfe_reduced <- list()
 final_results$visualization <- list()
 final_results$visualization_reduced <- list()
 
@@ -71,16 +56,15 @@ final_results$visualization_reduced <- list()
 for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   data <- final_features[[j]]
   
-  # Split the dataset into train/test (technically the split has happened during the preprocessing,
-  # we are just grouping together)
-  train_features <- new_data[train_indices, ]
-  test_features <- new_data[-train_indices, ]
+  # Split the dataset into train/test (technically the split has happened during the preprocessing, we are just grouping together)
+  train_features <- data[train_indices, ]
+  test_features <- data[-train_indices, ]
   
   train_labels <- new_final_label[train_indices]
   test_labels <- new_final_label[-train_indices]
   
   # One-hot-encode our features for the models that can't handle factors
-  dummy <- dummyVars("~.", data = new_data)
+  dummy <- dummyVars("~.", data = data)
   one_hot_train_features <- data.frame(predict(dummy, newdata = train_features))
   one_hot_test_features <- data.frame(predict(dummy, newdata = test_features))
   
@@ -103,112 +87,37 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
     returnResamp = "all"
   )
   
-  
   ## Rfe on initial features
   
-  rfe_results <- list()
-  features_dict <- hash()
-  for (i in 1:rfe_iterations) {
-    rfe <- rfe(train_features, train_labels,
-                           sizes = rfe_sizes,
-                           rfeControl = rfe_control,
-                           metric = metric,
-                           ntree = rfe_trees)
-    rfe_results[[i]] <- rfe
-    
-    # Loop through the features chosen
-    for (feature in rfe$optVariables) {
-      if (has.key(feature, features_dict)) {
-        # Feature has been seen at least once
-        features_dict[[feature]] <- features_dict[[feature]] + 1
-      } else {
-        # Newly considered feature
-        features_dict[[feature]] <- 1
-      }
-    }
-  }
+  rfe <- rfe(
+    train_features, train_labels,
+    sizes = rfe_sizes,
+    rfeControl = rfe_control,
+    metric = metric,
+    ntree = rfe_trees
+  )
+  cat(paste(sprintf("RFE decided that the optimal number of features is %i:", rfe$optsize), paste(rfe$optVariables, collapse=", "), sep="\n"))
+  cat('\n\n')
   
-  chosen_features <- c()
-  for (feature in keys(features_dict)) {
-    if (features_dict[[feature]] >= rfe_cutoff) {
-      chosen_features <- append(chosen_features, feature)
-    }
-  }
-  train_reduced <- train_features[, chosen_features]
-  test_reduced <- test_features[, chosen_features]
+  train_reduced <- train_features[, rfe$optVariables]
+  test_reduced <- test_features[, rfe$optVariables]
+  final_results$rfe[[j]] <- rfe$optVariables
   
+  ## Rfe on one-hot encoded features
   
-  ## Rfe on one_hot_encoded features
+  rfe_one_hot <- rfe(
+    one_hot_train_features, train_labels, 
+    sizes = rfe_sizes,
+    rfeControl = rfe_control,
+    metric = metric,
+    ntree = rfe_trees
+  )
+  cat(paste(sprintf("RFE decided that the optimal number of one-hot encoded features is %i:", rfe_one_hot$optsize), paste(rfe_one_hot$optVariables, collapse=", "), sep="\n"))
   
-  rfe_one_hot_results <- list()
-  one_hot_features_dict <- hash()
-  for (i in 1:rfe_iterations) {
-    rfe <- rfe(one_hot_train_features, train_labels,
-                           sizes = rfe_sizes,
-                           rfeControl = rfe_control,
-                           metric = metric,
-                           ntree = rfe_trees)
-    rfe_one_hot_results[[i]] <- rfe
-    
-    # Loop through the features chosen
-    for (feature in rfe$optVariables) {
-      if (has.key(feature, one_hot_features_dict)) {
-        # Feature has been seen at least once
-        one_hot_features_dict[[feature]] <- one_hot_features_dict[[feature]] + 1
-      } else {
-        # Newly considered feature
-        one_hot_features_dict[[feature]] <- 1
-      }
-    }
-  }
-  
-  one_hot_chosen_features <- c()
-  for (feature in keys(one_hot_features_dict)) {
-    if (one_hot_features_dict[[feature]] >= rfe_cutoff) {
-      one_hot_chosen_features <- append(one_hot_chosen_features, feature)
-    }
-  }
-  one_hot_train_reduced <- one_hot_train_features[, one_hot_chosen_features]
-  one_hot_test_reduced <- one_hot_test_features[, one_hot_chosen_features]
-  
-  
-  
-  ## ---- rfe_results, echo=TRUE---------------------------------------------------------------------------------------------------------------------------------
-  
-  features_list <- list()
-  for (key in keys(features_dict)) {
-    features_list[[key]] <- features_dict[[key]]
-  }
-  sorted_indices <- c(order(unlist(features_list), decreasing=TRUE))
-  sorted_features <- features_list[sorted_indices]
-  sorted_chosen <- sorted_features[sorted_features >= rfe_cutoff]
-  sorted_left <- sorted_features[sorted_features < rfe_cutoff & sorted_features > 2]
-  
-  cat(paste(names(sorted_chosen), sorted_chosen, sep = ": ", collapse = "\n"))
-  cat('\n')
-  cat('------------------------------------------------------------------------------')
-  cat('\n')
-  cat(paste(names(sorted_left), sorted_left, sep = ": ", collapse = "\n"))
-  
-  cat('\n\n\n')
-  cat('------------------------------------------------------------------------------')
-  cat('\n\n\n')
-  
-  one_hot_features_list <- list()
-  for (key in keys(one_hot_features_dict)) {
-    one_hot_features_list[[key]] <- one_hot_features_dict[[key]] 
-  }
-  one_hot_sorted_indices <- c(order(unlist(one_hot_features_list), decreasing=TRUE))
-  one_hot_sorted_features <- one_hot_features_list[one_hot_sorted_indices]
-  one_hot_sorted_chosen <- one_hot_sorted_features[one_hot_sorted_features >= rfe_cutoff]
-  one_hot_sorted_left <- one_hot_sorted_features[one_hot_sorted_features < rfe_cutoff & one_hot_sorted_features > 2]
-  
-  cat(paste(names(one_hot_sorted_chosen), one_hot_sorted_chosen, sep = ": ", collapse = "\n"))
-  cat('\n')
-  cat('------------------------------------------------------------------------------')
-  cat('\n')
-  cat(paste(names(one_hot_sorted_left), one_hot_sorted_left, sep = ": ", collapse = "\n"))
-  
+  one_hot_train_reduced <- one_hot_train_features[, rfe_one_hot$optVariables]
+  one_hot_test_reduced <- one_hot_test_features[, rfe_one_hot$optVariables]
+  final_results$rfe_reduced[[j]] <- rfe_one_hot$optVariables
+
   
   
   ## ---- train_control, echo=TRUE-------------------------------------------------------------------------------------------------------------------------------
@@ -231,12 +140,10 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   gs <- data.frame(cp = c(0.001, 0.005, 0.01, 0.05, 0.1))
   
   # All features
-  set.seed(1)
   dt <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rpart", ctrl)
   final_results$dt[[j]] <- dt
   
   # Reduced features
-  set.seed(1)
   dt_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rpart", ctrl)
   final_results$dt_reduced[[j]] <- dt_reduced
 
@@ -249,7 +156,6 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   gs <- data.frame(mtry = c(default - 10, default - 5, default, default + 5, default + 10, default + 20))
   
   # All features
-  set.seed(1)
   rf <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rf", ctrl)
   
   # Appropriate upper limit
@@ -258,7 +164,6 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   final_results$rf[[j]] <- rf
   
   # Reduced features
-  set.seed(1)
   rf_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rf", ctrl)
   final_results$rf_reduced[[j]] <- rf_reduced
   
@@ -270,7 +175,6 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   gs <- expand.grid(C = c(1),
                     sigma = c(1 / ncol(one_hot_train_features)),
                     Weight = seq(0.5, 2, by=0.5))
-  set.seed(1)
   svm <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="svmRadialWeights", ctrl)
   final_results$svm[[j]] <- svm
   
@@ -278,7 +182,6 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   gs <- expand.grid(C = c(1),
                     sigma = c(1 / ncol(one_hot_train_reduced)),
                     Weight = seq(0.5, 2, by=0.5))
-  set.seed(1)
   svm_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="svmRadialWeights", ctrl)
   final_results$svm_reduced[[j]] <- svm_reduced
   
@@ -291,12 +194,10 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
                     coeflearn = c("Breiman"))
   
   # All features
-  set.seed(1)
   adaboost <- run_model(gs, train_features, train_labels, test_features, test_labels, method="AdaBoost.M1", ctrl)
   final_results$adaboost[[j]] <- adaboost
   
   # All features reduced
-  set.seed(1)
   adaboost_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="AdaBoost.M1", ctrl)
   final_results$adaboost_reduced[[j]] <- adaboost_reduced
   
@@ -314,12 +215,10 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
                     )
   
   # One_hot features
-  set.seed(1)
   xgboost <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="xgbTree", ctrl)
   final_results$xgboost[[j]] <- xgboost
   
   # One_hot reduced features
-  set.seed(1)
   xgboost_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="xgbTree", ctrl)
   final_results$xgboost_reduced[[j]] <- xgboost_reduced
   
@@ -349,58 +248,19 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   f2_scores_reduced <- c(dt_reduced$f2, rf_reduced$f2, svm_reduced$f2, adaboost_reduced$f2, xgboost_reduced$f2, voting_reduced$f2)
   visualization_results_reduced <- visualize(auc_scores_reduced, f2_scores_reduced, 'Performance using reduced features')
   
-  final_results$visualization[[j]] <- visualization_results$plot
-  final_results$visualization_reduced[[j]] <- visualization_results_reduced$plot
+  final_results$visualization[[j]] <- visualization_results
+  final_results$visualization_reduced[[j]] <- visualization_results_reduced
   
   cat(paste(j, 'imputed dataset finished', sep=" "))
   cat("\n")
   
-  ## ---- visualization------------------------------------------------------------------------------------------------------------------------------------------
-  
-  # results_plot
-  # results_reduced_plot
-
 }
 
-setwd("D:/Κωνσταντίνος Data/Σχολής/Διπλωματική Εργασία/Main/results")
-save(final_results, training_config_list, data_file, file=save_results)
+processed_results <- process_final_results(final_results)
+processed_results$visualization$plot
+processed_results$visualization_reduced$plot
+processed_results$f2_scores
+processed_results$grouped_results$svm_reduced$f2
 
-classifiers <- c(
-  'dt', 'rf', 'svm', 'adaboost', 'xgboost', 'voting',
-  'dt_reduced', 'rf_reduced', 'svm_reduced', 'adaboost_reduced', 'xgboost_reduced', 'voting_reduced'
-)
-metrics <- c('auc', 'f2')
-
-grouped_results <- list()
-for (clf in classifiers) {
-  grouped_results[[clf]] <- list()
-  
-  for (metric in metrics) {
-    grouped_results[[clf]][[metric]] <- c()
-    
-    for (k in 1:2) {
-      grouped_results[[clf]][[metric]] <- append(grouped_results[[clf]][[metric]], final_results[[clf]][[k]][[metric]])
-    }
-  }
-}
-
-aggregate_results <- list()
-
-for (metric in metrics) {
-  aggregate_results[[metric]] <- c()
-  
-  for (clf in classifiers) {
-    aggregate_results[[metric]] <- append(aggregate_results[[metric]], sum(grouped_results[[clf]][[metric]]) / length(grouped_results[[clf]][[metric]]))
-  }
-}
-
-auc_scores <- aggregate_results$auc[1:6]
-f2_scores <- aggregate_results$f2[1:6]
-aggregate_visualization_results <- visualize(auc_scores, f2_scores, 'Performance using all features')
-aggregate_visualization_results$plot
-
-auc_scores_reduced <- aggregate_results$auc[7:12]
-f2_scores_reduced <- aggregate_results$f2[7:12]
-aggregate_visualization_results_reduced <- visualize(auc_scores_reduced, f2_scores_reduced, 'Performance using reduced features')
-aggregate_visualization_results_reduced$plot
-
+## Save the results
+save(final_results, processed_results, training_config_list, data_file, file=save_results_path)

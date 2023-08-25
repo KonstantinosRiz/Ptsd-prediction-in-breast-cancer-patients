@@ -4,7 +4,7 @@ output: html_notebook
 ---
 
 ```{r, imports, echo=FALSE, include=FALSE}
-library(smotefamily)
+# library(smotefamily)
 library(plyr)
 library(dplyr)
 library(ROSE)
@@ -26,16 +26,16 @@ library(pROC)
 library(hash)
 library(numbers)
 library(ggplot2)
+library(e1071)
 ```
 
 Initializing and loading the preprocessed, clean dataset which includes:
 
 1. final_features:            list of m datasets created during preprocessing (containing only the features)
 2. new_final_label:           the labels (same for all the datasets)
-3. new_label_name:            the label column name
-4. train_indices:             the indices of the samples that belong to the train set
-5. preprocessing_comments:    detailed comments about the preprocessing procedure
-6. config_list:               named list containing the parameters used to preprocess the data-set
+3. train_indices:             the indices of the samples that belong to the train set
+4. preprocessing_comments:    detailed comments about the preprocessing procedure
+5. config_list:               named list containing the parameters used to preprocess the dataset
 
 ```{r, load_data, echo=TRUE}
 
@@ -45,7 +45,7 @@ setwd(my_path)
 
 # Relative path
 clean_data_folder <- r"{..\dataset\preprocessed_results}"
-data_file <- r"{\M6_4.RData}"
+data_file <- r"{\M6_random_ignored.RData}"
 data_path <- paste(clean_data_folder, data_file, sep="")
 
 load(data_path)
@@ -69,22 +69,16 @@ source("models_aux.R")
 
 data <- final_features[[1]]
 
-if (ignore) {
-  new_data <- data[ , !names(data) %in% ignored_features]
-} else {
-  new_data <- data
-}
-
 # Split the dataset into train/test (technically the split has happened during the preprocessing,
 # we are just grouping together)
-train_features <- new_data[train_indices, ]
-test_features <- new_data[-train_indices, ]
+train_features <- data[train_indices, ]
+test_features <- data[-train_indices, ]
 
 train_labels <- new_final_label[train_indices]
 test_labels <- new_final_label[-train_indices]
 
 # One-hot-encode our features for the models that can't handle factors
-dummy <- dummyVars("~.", data = new_data)
+dummy <- dummyVars("~.", data = data)
 one_hot_train_features <- data.frame(predict(dummy, newdata = train_features))
 one_hot_test_features <- data.frame(predict(dummy, newdata = test_features))
 
@@ -103,119 +97,43 @@ if (rfe_sampling_method == "down") {
 rfe_control <- rfeControl(
   functions = myFuncs,
   method = "repeatedcv",
-  number = k_fold,
-  repeats = 5,
+  number = rfe_k_fold,
+  repeats = rfe_repeats,
   verbose = FALSE,
   returnResamp = "all"
 )
 
-
 ## Rfe on initial features
 
-rfe_results <- list()
-features_dict <- hash()
-for (i in 1:rfe_iterations) {
-  rfe <- rfe(train_features, train_labels,
-                         sizes = rfe_sizes,
-                         rfeControl = rfe_control,
-                         metric = metric,
-                         ntree = rfe_trees)
-  rfe_results[[i]] <- rfe
+rfe <- rfe(
+  train_features, train_labels,
+  sizes = rfe_sizes,
+  rfeControl = rfe_control,
+  metric = metric,
+  ntree = rfe_trees
+)
+cat(paste(sprintf("RFE decided that the optimal number of features is %i:", rfe$optsize), paste(rfe$optVariables, collapse=", "), sep="\n"))
+cat('\n\n')
   
-  # Loop through the features chosen
-  for (feature in rfe$optVariables) {
-    if (has.key(feature, features_dict)) {
-      # Feature has been seen at least once
-      features_dict[[feature]] <- features_dict[[feature]] + 1
-    } else {
-      # Newly considered feature
-      features_dict[[feature]] <- 1
-    }
-  }
-}
+train_reduced <- train_features[, rfe$optVariables]
+test_reduced <- test_features[, rfe$optVariables]
 
-chosen_features <- c()
-for (feature in keys(features_dict)) {
-  if (features_dict[[feature]] >= rfe_cutoff) {
-    chosen_features <- append(chosen_features, feature)
-  }
-}
-train_reduced <- train_features[, chosen_features]
-test_reduced <- test_features[, chosen_features]
+## Rfe on one-hot encoded features
 
+rfe_one_hot <- rfe(
+  one_hot_train_features, train_labels, 
+  sizes = rfe_sizes,
+  rfeControl = rfe_control,
+  metric = metric,
+  ntree = rfe_trees
+)
+cat(paste(sprintf("RFE decided that the optimal number of one-hot encoded features is %i:", rfe_one_hot$optsize), paste(rfe_one_hot$optVariables, collapse=", "), sep="\n"))
 
-## Rfe on one_hot_encoded features
-
-rfe_one_hot_results <- list()
-one_hot_features_dict <- hash()
-for (i in 1:rfe_iterations) {
-  rfe <- rfe(one_hot_train_features, train_labels,
-                         sizes = rfe_sizes,
-                         rfeControl = rfe_control,
-                         metric = metric,
-                         ntree = rfe_trees)
-  rfe_one_hot_results[[i]] <- rfe
-  
-  # Loop through the features chosen
-  for (feature in rfe$optVariables) {
-    if (has.key(feature, one_hot_features_dict)) {
-      # Feature has been seen at least once
-      one_hot_features_dict[[feature]] <- one_hot_features_dict[[feature]] + 1
-    } else {
-      # Newly considered feature
-      one_hot_features_dict[[feature]] <- 1
-    }
-  }
-}
-
-one_hot_chosen_features <- c()
-for (feature in keys(one_hot_features_dict)) {
-  if (one_hot_features_dict[[feature]] >= rfe_cutoff) {
-    one_hot_chosen_features <- append(one_hot_chosen_features, feature)
-  }
-}
-one_hot_train_reduced <- one_hot_train_features[, one_hot_chosen_features]
-one_hot_test_reduced <- one_hot_test_features[, one_hot_chosen_features]
+one_hot_train_reduced <- one_hot_train_features[, rfe_one_hot$optVariables]
+one_hot_test_reduced <- one_hot_test_features[, rfe_one_hot$optVariables]
 
 ```
 
-```{r, rfe_results, echo=TRUE}
-
-features_list <- list()
-for (key in keys(features_dict)) {
-  features_list[[key]] <- features_dict[[key]]
-}
-sorted_indices <- c(order(unlist(features_list), decreasing=TRUE))
-sorted_features <- features_list[sorted_indices]
-sorted_chosen <- sorted_features[sorted_features >= rfe_cutoff]
-sorted_left <- sorted_features[sorted_features < rfe_cutoff & sorted_features > 2]
-
-cat(paste(names(sorted_chosen), sorted_chosen, sep = ": ", collapse = "\n"))
-cat('\n')
-cat('------------------------------------------------------------------------------')
-cat('\n')
-cat(paste(names(sorted_left), sorted_left, sep = ": ", collapse = "\n"))
-
-cat('\n\n\n')
-cat('------------------------------------------------------------------------------')
-cat('\n\n\n')
-
-one_hot_features_list <- list()
-for (key in keys(one_hot_features_dict)) {
-  one_hot_features_list[[key]] <- one_hot_features_dict[[key]] 
-}
-one_hot_sorted_indices <- c(order(unlist(one_hot_features_list), decreasing=TRUE))
-one_hot_sorted_features <- one_hot_features_list[one_hot_sorted_indices]
-one_hot_sorted_chosen <- one_hot_sorted_features[one_hot_sorted_features >= rfe_cutoff]
-one_hot_sorted_left <- one_hot_sorted_features[one_hot_sorted_features < rfe_cutoff & one_hot_sorted_features > 2]
-
-cat(paste(names(one_hot_sorted_chosen), one_hot_sorted_chosen, sep = ": ", collapse = "\n"))
-cat('\n')
-cat('------------------------------------------------------------------------------')
-cat('\n')
-cat(paste(names(one_hot_sorted_left), one_hot_sorted_left, sep = ": ", collapse = "\n"))
-
-```
 # Models
 
 Run the wanted model using all the combinations of the hyperparameters in the respective grid, find the optimal model and evaluate it on the test set. We try the full-featured dataset where there are no limitations by the model. We try the one-hot encoded dataset where we can't use factors.
@@ -242,11 +160,9 @@ ctrl <- trainControl(
 gs <- data.frame(cp = c(0.001, 0.005, 0.01, 0.05, 0.1))
 
 # All features
-set.seed(1)
 dt <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rpart", ctrl)
 
 # Reduced features
-set.seed(1)
 dt_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rpart", ctrl)
 
 ```
@@ -259,7 +175,6 @@ default <- round(sqrt(ncol(train_features)))
 gs <- data.frame(mtry = c(default - 10, default - 5, default, default + 5, default + 10, default + 20))
 
 # All features
-set.seed(1)
 rf <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rf", ctrl)
 
 # Appropriate upper limit
@@ -267,7 +182,6 @@ default <- round(sqrt(ncol(train_reduced)))
 gs <- data.frame(mtry = c(default, default + 2, default + 4, default + 6))
 
 # Reduced features
-set.seed(1)
 rf_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rf", ctrl)
 
 ```
@@ -280,15 +194,16 @@ rf_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labe
 gs <- expand.grid(C = c(1),
                   sigma = c(1 / ncol(one_hot_train_features)),
                   Weight = seq(0.5, 2, by=0.5))
-set.seed(1)
+
 svm <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="svmRadialWeights", ctrl)
 
 # One-hot reduced features
 gs <- expand.grid(C = c(1),
                   sigma = c(1 / ncol(one_hot_train_reduced)),
                   Weight = seq(0.5, 2, by=0.5))
-set.seed(1)
+
 svm_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="svmRadialWeights", ctrl)
+
 
 ```
 
@@ -301,11 +216,9 @@ gs <- expand.grid(mfinal = c(10, 20, 50, 100, 150),
                   coeflearn = c("Breiman"))
 
 # All features
-set.seed(1)
 adaboost <- run_model(gs, train_features, train_labels, test_features, test_labels, method="AdaBoost.M1", ctrl)
 
 # All features reduced
-set.seed(1)
 adaboost_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="AdaBoost.M1", ctrl)
 
 ```
@@ -324,11 +237,9 @@ gs <- expand.grid(nrounds = c(10, 20, 50, 100),
                   )
 
 # One_hot features
-set.seed(1)
 xgboost <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="xgbTree", ctrl)
 
 # One_hot reduced features
-set.seed(1)
 xgboost_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="xgbTree", ctrl)
 
 ```
@@ -346,58 +257,14 @@ voting_reduced <- voting_classifier(dt_reduced, rf_reduced, svm_reduced, adaboos
 
 ```{r, grouped_results}
 
-original_classifier <- c('dt', 'rf', 'svm', 'adaboost', 'xgboost', 'voting')
-classifier <- rep(original_classifier, 2)
-no_class <- length(original_classifier)
-metric <- c(rep('auc', no_class), rep('f2', no_class))
-
 # Using all the features
-
 auc_scores <- c(dt$auc, rf$auc, svm$auc, adaboost$auc, xgboost$auc, voting$auc)
 f2_scores <- c(dt$f2, rf$f2, svm$f2, adaboost$f2, xgboost$f2, voting$f2)
-score <- c(auc_scores, f2_scores)
-
-# Pretty results df
-results_df_pretty <- data.frame(original_classifier, auc_scores, f2_scores)
-
-# Df for visualization
-results_df <- data.frame(classifier, metric, score)
-results_df$classifier <- factor(results_df$classifier, levels=original_classifier)
-
-results_plot <- ggplot(
-  data = results_df,
-  mapping = aes(x = classifier, y = score, fill = metric)
-) +
-  geom_col(position = 'dodge') +
-  scale_fill_manual(values = c('#417FBA', '#F2555E')) +
-  ggtitle('Performance using all features')
+visualization_results <- visualize(auc_scores, f2_scores, 'Performance using all features')
 
 # Using reduced features
-
 auc_scores_reduced <- c(dt_reduced$auc, rf_reduced$auc, svm_reduced$auc, adaboost_reduced$auc, xgboost_reduced$auc, voting_reduced$auc)
 f2_scores_reduced <- c(dt_reduced$f2, rf_reduced$f2, svm_reduced$f2, adaboost_reduced$f2, xgboost_reduced$f2, voting_reduced$f2)
-score <- c(auc_scores_reduced, f2_scores_reduced)
-
-# Pretty results df
-results_df_reduced_pretty <- data.frame(original_classifier, auc_scores_reduced, f2_scores_reduced)
-
-# Df for visualization
-results_reduced_df <- data.frame(classifier, metric, score)
-results_reduced_df$classifier <- factor(results_reduced_df$classifier, levels=original_classifier)
-
-results_reduced_plot <- ggplot(
-  data = results_reduced_df,
-  mapping = aes(x = classifier, y = score, fill = metric)
-) +
-  geom_col(position = 'dodge') +
-  scale_fill_manual(values = c('#417FBA', '#F2555E')) +
-  ggtitle('Performance using reduced features')
-
-```
-
-```{r, visualization}
-
-results_plot
-results_reduced_plot
+visualization_results_reduced <- visualize(auc_scores_reduced, f2_scores_reduced, 'Performance using reduced features')
 
 ```

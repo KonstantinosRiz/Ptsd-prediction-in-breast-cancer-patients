@@ -2,7 +2,7 @@
 ## Choose label from ["M6", "M12", "M18"]
 month_label <- "M6"
 # Increment this to add a new entry and not override existing files
-file_id <- 5
+# file_id <- 5
 
 
 ## Working directory (should be changed to run file in different device)
@@ -28,6 +28,8 @@ uniqueCut <- 10
 correlation_method <- "spearman"
 cor_threshold <- 0.8
 
+# One of ['random', 'IEO', 'HUS', 'HUJI', 'CHA']
+split_method <- 'random'
 train_size <- 0.7
 # Not using a validation set for now
 val_size <- 0
@@ -47,6 +49,7 @@ config_list <- list(
   "uniqueCut" = uniqueCut,
   "correlation_method" = correlation_method,
   "cor_threshold" = cor_threshold,
+  "split_method" = split_method,
   "train_size" = train_size,
   "val_size" = val_size,
   "ptsd_threshold" = ptsd_threshold
@@ -54,4 +57,9 @@ config_list <- list(
 
 
 ## Save file
-save_file_name <- paste(paste(month_label, file_id, sep="_"), "RData", sep=".")
+if (ignore) {
+  save_file_name <- paste(paste(month_label, split_method, 'ignored', sep="_"), "RData", sep=".")
+} else {
+  save_file_name <- paste(paste(month_label, split_method, sep="_"), "RData", sep=".")
+}
+

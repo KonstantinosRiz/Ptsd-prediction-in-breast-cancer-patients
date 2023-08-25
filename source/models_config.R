@@ -1,4 +1,3 @@
-
 ## Rfe parameters
 
 rfe_sizes <- c(2, 5, seq(10, 20, 2), 30)
@@ -6,30 +5,24 @@ rfe_sizes <- c(2, 5, seq(10, 20, 2), 30)
 rfe_sampling_method = "down"
 rfe_trees <- 2000
 rfe_tol <- 3.5
-# previous value 10
-rfe_iterations <- 10
-rfe_cutoff <- div(rfe_iterations, 2)
-# Usually 5, 5
 rfe_k_fold <- 5
-rfe_repeats <- 5
+rfe_repeats <- 10
+
+
+## Training parameters
 
 k_fold <- 5
-repeats <- 5
-
-
+repeats <- 2
 # One of ["none", "down", "up", "smote", "rose"]
 sampling_method <- "down"
-
 # One of ["ROC", "f2"]
-metric <- "ROC"
+metric <- "f2"
 
 training_config_list <- list(
   "rfe_sizes" = rfe_sizes,
   "rfe_sampling_method" = rfe_sampling_method,
   "rfe_trees" = rfe_trees,
   "rfe_tol" = rfe_tol,
-  "rfe_iterations" = rfe_iterations,
-  "rfe_cutoff" = rfe_cutoff,
   "rfe_k_fold" = rfe_k_fold,
   "rfe_repeats" = rfe_repeats,
   "k_fold" = k_fold,
@@ -38,7 +31,17 @@ training_config_list <- list(
   "metric" = metric
 )
 
+
+## Choose the correct data file to load
+
+clean_data_folder <- r"{..\dataset\preprocessed_results}"
+data_file <- r"{M6_random_ignored.RData}"
+data_path <- paste(clean_data_folder, data_file, sep=r"{\}")
+
+
 ## Save file
-# Increment this to add a new entry and not override existing files
-file_id <- 1
-save_results <- paste(file_id, "RData", sep=".")
+
+# This does not override the data file because I change the working directory before saving
+save_results_folder <- r"{..\results}"
+save_results_file <- data_file
+save_results_path <- paste(save_results_folder, save_results_file, sep=r"{\}")
