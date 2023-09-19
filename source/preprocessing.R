@@ -1,9 +1,4 @@
----
-title: "Data preprocessing"
-output: html_notebook
----
-
-```{r, imports, echo=FALSE, include=FALSE}
+## ---- imports, echo=FALSE, include=FALSE----------------------------------------------------------------------------------------------------------------------
 
 library(mice)
 library(dplyr)
@@ -13,11 +8,9 @@ library(purrr)
 library(stringr)
 library(R.oo)
 
-```
 
-# Data loading and variable renaming
 
-```{r}
+## -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 # Set the hyperparameters
 source("preprocessing_config.R")
@@ -41,11 +34,9 @@ label <- potential_labels[, label_name]
 # during every step
 preprocessing_comments <- list()
 
-```
 
-# 0. If requested ignore features hinted by medics to have overlapping information
 
-```{r}
+## -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 if (ignore) {
     features_0 <- potential_features[ , !names(potential_features) %in% ignored_features]
@@ -57,15 +48,9 @@ if (ignore) {
     features_0 <- potential_features
   }
 
-```
 
-# 1. Eliminate samples with no label
 
-This has to happen before step 2, because I don't wanna count as missing
-values of a feature the values of a sample that has no label and is therefore
-useless.
-
-```{r}
+## -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 features_1 <- features_0[!is.na(label), ]
 label_1 <- label[!is.na(label)]
@@ -76,11 +61,9 @@ comment_1 <- sprintf("Step 1: Eliminated %i samples with no %s label",
                      nrow(potential_features) - nrow(features_1), label_name)
 preprocessing_comments <- append(preprocessing_comments, comment_1)
 
-```
 
-# 2. Eliminate features with too many missing values
 
-```{r}
+## -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 missing_values_per_column <- colSums(is.na(features_1))
 percent_missing_rows <- missing_values_per_column / nrow(features_1)
@@ -103,11 +86,9 @@ if (length(temp) != 0) {
 }
 preprocessing_comments <- append(preprocessing_comments, comment_2)
 
-```
 
-# 3. Eliminate samples with too many missing values
 
-```{r}
+## -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 missing_values_per_row <- rowSums(is.na(features_2))
 
@@ -131,11 +112,9 @@ if (length(temp) != 0) {
 }
 preprocessing_comments <- append(preprocessing_comments, comment_3)
 
-```
 
-# 4. Eliminate discrete features with near zero variance
 
-```{r}
+## -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 near_zero_var_indices <- nearZeroVar(features_3, freqCut=freqCut, uniqueCut=uniqueCut)
 if (identical(near_zero_var_indices, integer(0))) {
@@ -154,11 +133,9 @@ if (length(near_zero_var_indices) != 0) {
 }
 preprocessing_comments <- append(preprocessing_comments, comment_4)
 
-```
 
-# 5. Eliminate highly correlated features
 
-```{r}
+## -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 # Use only numeric features
 numeric_features <- features_4 %>% select_if(is.numeric)
@@ -196,11 +173,9 @@ if (length(highly_correlated_indices) != 0) {
 }
 preprocessing_comments <- append(preprocessing_comments, comment_5)
 
-```
 
-# 6. Split the dataset into train/test
 
-```{r}
+## -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 # Threshold the label
 new_final_label <- as.factor(as.integer(final_label >= ptsd_threshold))
@@ -247,11 +222,9 @@ features_6 <- subset(features_5, select = -c(mrn, care_team))
 
 preprocessing_comments <- append(preprocessing_comments, comment_6)
 
-```
 
-# 7. Impute missing values
 
-```{r}
+## -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 # I impute using only the train samples but apply the imputation process to the test set as well.
 ignore_vector <- rep(TRUE, nrow(features_6))
@@ -268,17 +241,9 @@ for (i in 1 : number_of_imputed_datasets) {
 comment_7 <- sprintf("Step 7: Used Multiple Imputation Chained Equations (MICE) to impute %i different datasets", number_of_imputed_datasets)
 preprocessing_comments <- append(preprocessing_comments, comment_7)
 
-```
-
-We plan to use all the different imputed datasets to predict using our model and
-afterwards average the results. The idea is that each imputed dataset is an approach
-of the "real" dataset (many values of which are unknown) and using all the approaches
-will get us to a more realistic result
 
 
-# Final save file which will be used to train and evaluate the models
-
-```{r}
+## -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 if (val_size != 0) {
   # Create the validation set indices
@@ -289,4 +254,4 @@ if (val_size != 0) {
   save(final_features, new_final_label, train_indices, preprocessing_comments, config_list, file=save_path)
 }
 
-```
+

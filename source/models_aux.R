@@ -58,7 +58,6 @@ run_model <- function(gs, train_features, train_labels, test_features, test_labe
 
   conf_matrix <- caret::confusionMatrix(data=preds, reference=test_labels, positive="1")
 
-  # preds
   list(
     "best_fit" = optimal_model,
      "preds" = preds,

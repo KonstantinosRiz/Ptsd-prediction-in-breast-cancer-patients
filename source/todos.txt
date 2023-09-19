@@ -22,10 +22,10 @@ Preprocessing comments:
 TODOs:
 	Talked about with gestam:
 		1. visualize results (eg barplots)	-->	DONE
-		2. split train-test based on hospitals
+		2. split train-test based on hospitals	-->	DONE
 		3. explainable ai plots
 		4. discuss contents of diploma
-		5. research hyper-parameters of config on the internet
+		5. research hyper-parameters of config on the internet	-->	DONE
 
 
 	Review models and run the results for all the imputed datasets: gather and average results	-->	DONE
@@ -34,11 +34,8 @@ TODOs:
 
 
 	Many runs that check the randomness:
-		maybe save the results (in some form?) at the disk and then load them all together and average them
+		maybe save the results (in some form?) at the disk and then load them all together and average them	-->	Νο need, that's what repeared cv is for
 
-
-	MAYBE: remove correlated features that are factors (and not only numeric ones)
-	Research soft voting
 
 
 

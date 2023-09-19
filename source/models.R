@@ -21,6 +21,7 @@ library(pROC)
 library(hash)
 library(numbers)
 library(ggplot2)
+library(DALEX)
 
 
 ## ---- load_code_and_data, echo=TRUE-----------------------------------------------------------------------------------------------------------------------------------
@@ -48,7 +49,7 @@ final_results$xgboost_reduced <- list()
 final_results$voting <- list()
 final_results$voting_reduced <- list()
 final_results$rfe <- list()
-final_results$rfe_reduced <- list()
+final_results$rfe_one_hot <- list()
 final_results$visualization <- list()
 final_results$visualization_reduced <- list()
 
@@ -101,7 +102,7 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   
   train_reduced <- train_features[, rfe$optVariables]
   test_reduced <- test_features[, rfe$optVariables]
-  final_results$rfe[[j]] <- rfe$optVariables
+  final_results$rfe[[j]] <- rfe
   
   ## Rfe on one-hot encoded features
   
@@ -116,7 +117,7 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   
   one_hot_train_reduced <- one_hot_train_features[, rfe_one_hot$optVariables]
   one_hot_test_reduced <- one_hot_test_features[, rfe_one_hot$optVariables]
-  final_results$rfe_reduced[[j]] <- rfe_one_hot$optVariables
+  final_results$rfe_one_hot[[j]] <- rfe_one_hot
 
   
   
@@ -257,10 +258,10 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
 }
 
 processed_results <- process_final_results(final_results)
-processed_results$visualization$plot
-processed_results$visualization_reduced$plot
-processed_results$f2_scores
-processed_results$grouped_results$svm_reduced$f2
+# processed_results$visualization$plot
+# processed_results$visualization_reduced$plot
+# processed_results$f2_scores
+# processed_results$grouped_results$svm_reduced$f2
 
 ## Save the results
 save(final_results, processed_results, training_config_list, data_file, file=save_results_path)

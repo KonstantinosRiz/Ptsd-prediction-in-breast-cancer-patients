@@ -12,7 +12,7 @@ rfe_repeats <- 10
 ## Training parameters
 
 k_fold <- 5
-repeats <- 2
+repeats <- 5
 # One of ["none", "down", "up", "smote", "rose"]
 sampling_method <- "down"
 # One of ["ROC", "f2"]
@@ -35,7 +35,7 @@ training_config_list <- list(
 ## Choose the correct data file to load
 
 clean_data_folder <- r"{..\dataset\preprocessed_results}"
-data_file <- r"{M6_random_ignored.RData}"
+data_file <- r"{M6_random.RData}"
 data_path <- paste(clean_data_folder, data_file, sep=r"{\}")
 
 
