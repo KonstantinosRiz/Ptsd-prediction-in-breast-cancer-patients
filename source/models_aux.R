@@ -14,15 +14,20 @@ many_stats_summary <-function(data, lev = levels(data$obs), model = NULL) {
     )
 }
 
-rf_fit_down <- function(x, y, first, last, ...){
+myFit <- function(x, y, first, last, ...){
   # Function that downsamples the data before running rfe
   loadNamespace("randomForest")
   
-  df_down <- caret::downSample(x, y)
+  if (rfe_sampling_method == "down") {
+    df <- caret::downSample(x, y)
+  } else if (rfe_sampling_method == "up") {
+    df <- caret::upSample(x, y)
+  }
+  
   
   randomForest::randomForest(
-    dplyr::select(df_down, -Class),
-    df_down$Class,
+    dplyr::select(df, -Class),
+    df$Class,
     importance = (first | last),
     ...)
 }
@@ -32,16 +37,25 @@ myPickSizeTolerance <- function(x, metric, tol=1.5, maximize=TRUE) {
   pickSizeTolerance(x, metric, tol = rfe_tol, maximize = maximize)
 }
 
-run_model <- function(gs, train_features, train_labels, test_features, test_labels, method, control, metric="f2", preprocess=NULL) {
+run_model <- function(gs, train_features, train_labels, test_features, test_labels, method, control, metric="f2", preprocess=FALSE) {
   # This functions runs all the models, according to the inputs
 
   # Create the models
-  results <- train(train_features, train_labels, method = method,
-        trControl = control,
-        # preProcess = c("center", "scale"),
-        tuneGrid=gs,
-        metric=metric
-  )
+  if (preprocess) {
+    results <- train(train_features, train_labels, method = method,
+          trControl = control,
+          preProcess = c("center", "scale"),
+          tuneGrid=gs,
+          metric=metric
+    )
+  }
+  else {
+    results <- train(train_features, train_labels, method = method,
+                     trControl = control,
+                     tuneGrid=gs,
+                     metric=metric
+    )
+  }
 
   optimal_model <- results$finalModel
   preds <- predict(results, test_features)

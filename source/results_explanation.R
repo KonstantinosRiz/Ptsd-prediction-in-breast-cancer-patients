@@ -1,46 +1,31 @@
 #### Choose file
-result_file <- '1.RData'
+results_folder <- r"{..\results}"
+results_file <- r"{M6_random_ignored.RData}"
+# results_file <- r"{M6_random_ignored.RData}"
+results_path <- paste(results_folder, results_file, sep=r"{\}")
+load(results_path)
+
+processed_results$visualization
 
 
-setwd("D:/Κωνσταντίνος Data/Σχολής/Διπλωματική Εργασία/Main/results")
-load(result_file)
 
-# Process, group and visualize results
-classifiers <- c(
-  'dt', 'rf', 'svm', 'adaboost', 'xgboost', 'voting',
-  'dt_reduced', 'rf_reduced', 'svm_reduced', 'adaboost_reduced', 'xgboost_reduced', 'voting_reduced'
-)
-metrics <- c('auc', 'f2')
 
-grouped_results <- list()
-for (clf in classifiers) {
-  grouped_results[[clf]] <- list()
-  
-  for (metric in metrics) {
-    grouped_results[[clf]][[metric]] <- c()
-    
-    for (k in 1:2) {
-      grouped_results[[clf]][[metric]] <- append(grouped_results[[clf]][[metric]], final_results[[clf]][[k]][[metric]])
-    }
-  }
-}
 
-aggregate_results <- list()
 
-for (metric in metrics) {
-  aggregate_results[[metric]] <- c()
-  
-  for (clf in classifiers) {
-    aggregate_results[[metric]] <- append(aggregate_results[[metric]], sum(grouped_results[[clf]][[metric]]) / length(grouped_results[[clf]][[metric]]))
-  }
-}
 
-auc_scores <- aggregate_results$auc[1:6]
-f2_scores <- aggregate_results$f2[1:6]
-aggregate_visualization_results <- visualize(auc_scores, f2_scores, 'Performance using all features')
-aggregate_visualization_results$plot
 
-auc_scores_reduced <- aggregate_results$auc[7:12]
-f2_scores_reduced <- aggregate_results$f2[7:12]
-aggregate_visualization_results_reduced <- visualize(auc_scores_reduced, f2_scores_reduced, 'Performance using reduced features')
-aggregate_visualization_results_reduced$plot
+# #### Explainable AI usage
+# library(DALEX)
+# 
+# exp <- explain(
+#   rf_reduced$best_fit,
+#   data = train_reduced,
+#   y = train_labels
+# )
+# 
+# # These basically create the same plot
+# xai <- variable_effect(exp2, colnames(train_reduced))
+# plot(xai)
+# 
+# xai_model_profile <- model_profile(exp2, colnames(train_reduced))
+# plot(xai_model_profile)

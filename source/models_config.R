@@ -1,8 +1,8 @@
 ## Rfe parameters
 
 rfe_sizes <- c(2, 5, seq(10, 20, 2), 30)
-# One of ["none", "down"]
-rfe_sampling_method = "down"
+# One of ["none", "down", "up"]
+rfe_sampling_method = "up"
 rfe_trees <- 2000
 rfe_tol <- 3.5
 rfe_k_fold <- 5
@@ -35,7 +35,7 @@ training_config_list <- list(
 ## Choose the correct data file to load
 
 clean_data_folder <- r"{..\dataset\preprocessed_results}"
-data_file <- r"{M6_random.RData}"
+data_file <- r"{M6_random_ignored.RData}"
 data_path <- paste(clean_data_folder, data_file, sep=r"{\}")
 
 

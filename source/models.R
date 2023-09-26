@@ -49,7 +49,6 @@ final_results$xgboost_reduced <- list()
 final_results$voting <- list()
 final_results$voting_reduced <- list()
 final_results$rfe <- list()
-final_results$rfe_one_hot <- list()
 final_results$visualization <- list()
 final_results$visualization_reduced <- list()
 
@@ -76,9 +75,10 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   myFuncs <- rfFuncs
   myFuncs$summary <- many_stats_summary
   myFuncs$selectSize <- myPickSizeTolerance
-  if (rfe_sampling_method == "down") {
-    myFuncs$fit <- rf_fit_down
-  }
+  myFuncs$fit <- myFit
+  
+  
+  
   rfe_control <- rfeControl(
     functions = myFuncs,
     method = "repeatedcv",
@@ -87,8 +87,6 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
     verbose = FALSE,
     returnResamp = "all"
   )
-  
-  ## Rfe on initial features
   
   rfe <- rfe(
     train_features, train_labels,
@@ -104,21 +102,13 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   test_reduced <- test_features[, rfe$optVariables]
   final_results$rfe[[j]] <- rfe
   
-  ## Rfe on one-hot encoded features
+  ## One-hot encode the rfe features (mostly numeric features are chosen so this is mostly placebo
+  ## and so that it doesn't crash in cases when categorical features rarely get selected)
   
-  rfe_one_hot <- rfe(
-    one_hot_train_features, train_labels, 
-    sizes = rfe_sizes,
-    rfeControl = rfe_control,
-    metric = metric,
-    ntree = rfe_trees
-  )
-  cat(paste(sprintf("RFE decided that the optimal number of one-hot encoded features is %i:", rfe_one_hot$optsize), paste(rfe_one_hot$optVariables, collapse=", "), sep="\n"))
+  dummy_one_hot <- dummyVars("~.", data = rbind(train_reduced, test_reduced))
+  one_hot_train_reduced <- data.frame(predict(dummy_one_hot, newdata = train_reduced))
+  one_hot_test_reduced <- data.frame(predict(dummy_one_hot, newdata = test_reduced))
   
-  one_hot_train_reduced <- one_hot_train_features[, rfe_one_hot$optVariables]
-  one_hot_test_reduced <- one_hot_test_features[, rfe_one_hot$optVariables]
-  final_results$rfe_one_hot[[j]] <- rfe_one_hot
-
   
   
   ## ---- train_control, echo=TRUE-------------------------------------------------------------------------------------------------------------------------------
@@ -147,7 +137,7 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   # Reduced features
   dt_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rpart", ctrl)
   final_results$dt_reduced[[j]] <- dt_reduced
-
+  
   
   
   
@@ -176,14 +166,14 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   gs <- expand.grid(C = c(1),
                     sigma = c(1 / ncol(one_hot_train_features)),
                     Weight = seq(0.5, 2, by=0.5))
-  svm <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="svmRadialWeights", ctrl)
+  svm <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="svmRadialWeights", ctrl, preprocess=TRUE)
   final_results$svm[[j]] <- svm
   
   # One-hot reduced features
   gs <- expand.grid(C = c(1),
                     sigma = c(1 / ncol(one_hot_train_reduced)),
                     Weight = seq(0.5, 2, by=0.5))
-  svm_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="svmRadialWeights", ctrl)
+  svm_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="svmRadialWeights", ctrl, preprocess=TRUE)
   final_results$svm_reduced[[j]] <- svm_reduced
   
   
@@ -252,7 +242,7 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   final_results$visualization[[j]] <- visualization_results
   final_results$visualization_reduced[[j]] <- visualization_results_reduced
   
-  cat(paste(j, 'imputed dataset finished', sep=" "))
+  cat(paste(j, 'imputed dataset(s) finished', sep=" "))
   cat("\n")
   
 }
