@@ -54,6 +54,7 @@ final_results$visualization_reduced <- list()
 
 # Find the optimal model for every imputed dataset
 for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
+# for (j in 1:1) {
   data <- final_features[[j]]
   
   # Split the dataset into train/test (technically the split has happened during the preprocessing, we are just grouping together)
@@ -72,12 +73,12 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   
   ## ---- rfe, echo=TRUE-----------------------------------------------------------------------------------------------------------------------------------------
   
+  start_rfe <- Sys.time()
+  
   myFuncs <- rfFuncs
   myFuncs$summary <- many_stats_summary
   myFuncs$selectSize <- myPickSizeTolerance
   myFuncs$fit <- myFit
-  
-  
   
   rfe_control <- rfeControl(
     functions = myFuncs,
@@ -87,7 +88,6 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
     verbose = FALSE,
     returnResamp = "all"
   )
-  
   rfe <- rfe(
     train_features, train_labels,
     sizes = rfe_sizes,
@@ -95,12 +95,15 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
     metric = metric,
     ntree = rfe_trees
   )
-  cat(paste(sprintf("RFE decided that the optimal number of features is %i:", rfe$optsize), paste(rfe$optVariables, collapse=", "), sep="\n"))
-  cat('\n\n')
   
   train_reduced <- train_features[, rfe$optVariables]
   test_reduced <- test_features[, rfe$optVariables]
   final_results$rfe[[j]] <- rfe
+  
+  end_rfe <- Sys.time()
+  # cat(paste(sprintf("RFE decided that the optimal number of features is %i:", rfe$optsize), paste(rfe$optVariables, collapse=", "), sep="\n"))
+  cat(sprintf("RFE took %.2f seconds\n", end_rfe-start_rfe))
+  
   
   ## One-hot encode the rfe features (mostly numeric features are chosen so this is mostly placebo
   ## and so that it doesn't crash in cases when categorical features rarely get selected)
@@ -108,6 +111,7 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   dummy_one_hot <- dummyVars("~.", data = rbind(train_reduced, test_reduced))
   one_hot_train_reduced <- data.frame(predict(dummy_one_hot, newdata = train_reduced))
   one_hot_test_reduced <- data.frame(predict(dummy_one_hot, newdata = test_reduced))
+  cat("Done computing one-hot features\n")
   
   
   
@@ -125,84 +129,103 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   )
   
   
-  
+
   ## ---- dt, echo=TRUE------------------------------------------------------------------------------------------------------------------------------------------
-  
+
+  start_dt <- Sys.time()
+
   gs <- data.frame(cp = c(0.001, 0.005, 0.01, 0.05, 0.1))
-  
+
   # All features
   dt <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rpart", ctrl)
   final_results$dt[[j]] <- dt
-  
+
   # Reduced features
   dt_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rpart", ctrl)
   final_results$dt_reduced[[j]] <- dt_reduced
-  
-  
-  
-  
+
+  end_dt <- Sys.time()
+  cat(sprintf("Decision Tree took %.2f seconds\n", end_dt-start_dt))
+
+
   ## ---- rf, echo=TRUE------------------------------------------------------------------------------------------------------------------------------------------
-  
+
+  start_rf <- Sys.time()
+
   default <- round(sqrt(ncol(train_features)))
   gs <- data.frame(mtry = c(default - 10, default - 5, default, default + 5, default + 10, default + 20))
-  
+
   # All features
   rf <- run_model(gs, train_features, train_labels, test_features, test_labels, method="rf", ctrl)
-  
+
   # Appropriate upper limit
   default <- round(sqrt(ncol(train_reduced)))
   gs <- data.frame(mtry = c(default, default + 2, default + 4, default + 6))
   final_results$rf[[j]] <- rf
-  
+
   # Reduced features
   rf_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="rf", ctrl)
   final_results$rf_reduced[[j]] <- rf_reduced
-  
-    
-  
+
+  end_rf <- Sys.time()
+  cat(sprintf("Random Forest took %.2f seconds\n", end_rf-start_rf))
+
+
   ## ---- SVM, echo=TRUE-----------------------------------------------------------------------------------------------------------------------------------------
-  
+
+  start_svm <- Sys.time()
+
   # One-hot encoded features
-  gs <- expand.grid(C = c(1),
-                    sigma = c(1 / ncol(one_hot_train_features)),
-                    Weight = seq(0.5, 2, by=0.5))
-  svm <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="svmRadialWeights", ctrl, preprocess=TRUE)
+  gs <- expand.grid(C = c(0.1, 0.5, 1, 2, 5, 10),
+                    sigma = c(0.1, 0.5, 1, 2, 5)
+                    # Weight = seq(0.5, 2, by=0.5)
+                    )
+  svm <- run_model(gs, one_hot_train_features, train_labels, one_hot_test_features, test_labels, method="svmRadial", ctrl, preprocess=TRUE)
   final_results$svm[[j]] <- svm
-  
+
   # One-hot reduced features
   gs <- expand.grid(C = c(1),
-                    sigma = c(1 / ncol(one_hot_train_reduced)),
-                    Weight = seq(0.5, 2, by=0.5))
-  svm_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="svmRadialWeights", ctrl, preprocess=TRUE)
+                    sigma = c(1 / ncol(one_hot_train_reduced))
+                    # Weight = seq(0.5, 2, by=0.5)
+                    )
+  svm_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="svmRadial", ctrl, preprocess=TRUE)
   final_results$svm_reduced[[j]] <- svm_reduced
-  
-  
-  
+
+  end_svm <- Sys.time()
+  cat(sprintf("SVM took %.2f seconds\n", end_svm-start_svm))
+
+
   ## ---- adaboost, echo=TRUE------------------------------------------------------------------------------------------------------------------------------------
-  
-  gs <- expand.grid(mfinal = c(10, 20, 50, 100, 150),
-                    maxdepth = c(1, 2),
+
+  start_adaboost <- Sys.time()
+
+  gs <- expand.grid(mfinal = c(25, 50, 100),
+                    maxdepth = c(1, 3, 5),
                     coeflearn = c("Breiman"))
-  
+
   # All features
   adaboost <- run_model(gs, train_features, train_labels, test_features, test_labels, method="AdaBoost.M1", ctrl)
   final_results$adaboost[[j]] <- adaboost
-  
+
   # All features reduced
   adaboost_reduced <- run_model(gs, train_reduced, train_labels, test_reduced, test_labels, method="AdaBoost.M1", ctrl)
   final_results$adaboost_reduced[[j]] <- adaboost_reduced
-  
+
+  end_adaboost <- Sys.time()
+  cat(sprintf("Adaboost took %.2f seconds\n", end_adaboost-start_adaboost))
   
   
   ## ---- gradient_boost, echo=TRUE------------------------------------------------------------------------------------------------------------------------------
   
-  gs <- expand.grid(nrounds = c(10, 20, 50, 100),
-                    max_depth = 6,
-                    eta = 0.3,
+  start_xgboost <- Sys.time()
+  
+  gs <- expand.grid(nrounds = c(25, 50, 100),
+                    eta = c(0.05, 0.1, 0.3),
                     gamma = 0,
-                    colsample_bytree = 1,
+                    max_depth = c(4, 6, 8),
                     min_child_weight = 1,
-                    subsample = 1
+                    subsample = c(0.8, 1),
+                    colsample_bytree = c(0.8, 1)
                     )
   
   # One_hot features
@@ -213,9 +236,13 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   xgboost_reduced <- run_model(gs, one_hot_train_reduced, train_labels, one_hot_test_reduced, test_labels, method="xgbTree", ctrl)
   final_results$xgboost_reduced[[j]] <- xgboost_reduced
   
+  end_xgboost <- Sys.time()
+  cat(sprintf("XGBoost took %.2f seconds\n", end_xgboost-start_xgboost)) 
   
   
   ## ---- voting_classifier, echo=TRUE---------------------------------------------------------------------------------------------------------------------------
+  
+  start_voting <- Sys.time()
   
   ## Using all features
   voting <- voting_classifier(dt, rf, svm, adaboost, xgboost)
@@ -225,6 +252,8 @@ for (j in 1:as.integer(config_list["number_of_imputed_datasets"])) {
   voting_reduced <- voting_classifier(dt_reduced, rf_reduced, svm_reduced, adaboost_reduced, xgboost_reduced)
   final_results$voting_reduced[[j]] <- voting_reduced
   
+  end_voting <- Sys.time()
+  cat(sprintf("Voting took %.2f seconds\n", end_voting-start_voting)) 
   
   
   ## ---- grouped_results----------------------------------------------------------------------------------------------------------------------------------------

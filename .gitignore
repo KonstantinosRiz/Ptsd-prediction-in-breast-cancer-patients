@@ -9,10 +9,13 @@
 # Unwanted file types
 *.html
 *.docx
+!diploma_thesis.docx
 *.xlsx
 *.pdf
 *.pptx
 *.txt
+*.jpg
+*.png
 
 
 dataset/
