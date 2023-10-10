@@ -22,7 +22,7 @@ correlation_method <- "spearman"
 cor_threshold <- 0.8
 
 # One of ['random', 'IEO', 'HUS', 'HUJI', 'CHA']
-split_method <- 'CHA'
+split_method <- 'random'
 train_size <- 0.7
 # Not using a validation set for now
 val_size <- 0
@@ -49,12 +49,13 @@ config_list <- list(
 )
 
 
-## Save file
+# Save file
 save_folder <- r"{..\dataset\preprocessed_results}"
-if (ignore) {
-  save_file_name <- paste(paste(month_label, split_method, 'ignored', sep="_"), "RData", sep=".")
-} else {
-  save_file_name <- paste(paste(month_label, split_method, sep="_"), "RData", sep=".")
-}
+# if (ignore) {
+#   save_file_name <- paste(paste(month_label, split_method, 'ignored', sep="_"), "RData", sep=".")
+# } else {
+#   save_file_name <- paste(paste(month_label, split_method, sep="_"), "RData", sep=".")
+# }
+save_file_name <- 'M6_random_NEW.RData'
 save_path <- paste(save_folder, save_file_name, sep=r"{\}")
 

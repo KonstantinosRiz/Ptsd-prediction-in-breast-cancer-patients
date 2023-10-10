@@ -13,7 +13,7 @@ rfe_repeats <- 10
 
 k_fold <- 5
 repeats <- 5
-# One of ["none", "down", "up", "smote", "rose"]
+# One of [NULL, "down", "up", "rose"]
 sampling_method <- "down"
 # One of ["ROC", "f2"]
 metric <- "f2"
@@ -35,7 +35,7 @@ training_config_list <- list(
 ## Choose the correct data file to load
 
 clean_data_folder <- r"{..\dataset\preprocessed_results}"
-data_file <- r"{M6_random_ignored.RData}"
+data_file <- r"{M6_IEO_ignored.RData}"
 data_path <- paste(clean_data_folder, data_file, sep=r"{\}")
 
 
@@ -43,6 +43,5 @@ data_path <- paste(clean_data_folder, data_file, sep=r"{\}")
 
 # This does not override the data file because I change the working directory before saving
 save_results_folder <- r"{..\results}"
-# save_results_file <- data_file
-save_results_file <- r"{M6_random_ignored_NEW.RData}"
+save_results_file <- r"{M6_IEO.RData}"
 save_results_path <- paste(save_results_folder, save_results_file, sep=r"{\}")

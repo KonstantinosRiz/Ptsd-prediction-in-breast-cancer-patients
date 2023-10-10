@@ -199,6 +199,50 @@ process_final_results <- function(final_results_list) {
   )
 }
 
+process_final_results_reduced_only <- function(final_results_list) {
+  # This argument-list has been created from running the models.R file has and been saved (along with some other stuff)
+  
+  classifiers <- c(
+    'dt_reduced', 'rf_reduced', 'svm_reduced', 'adaboost_reduced', 'xgboost_reduced', 'voting_reduced'
+  )
+  metrics <- c('auc', 'f2')
+  
+  grouped_results <- list()
+  for (clf in classifiers) {
+    grouped_results[[clf]] <- list()
+    
+    for (metric in metrics) {
+      grouped_results[[clf]][[metric]] <- c()
+      
+      for (k in 1:as.integer(config_list["number_of_imputed_datasets"])) {
+        grouped_results[[clf]][[metric]] <- append(grouped_results[[clf]][[metric]], final_results_list[[clf]][[k]][[metric]])
+      }
+    }
+  }
+  
+  aggregate_results <- list()
+  
+  for (metric in metrics) {
+    aggregate_results[[metric]] <- c()
+    
+    for (clf in classifiers) {
+      aggregate_results[[metric]] <- append(aggregate_results[[metric]], sum(grouped_results[[clf]][[metric]]) / length(grouped_results[[clf]][[metric]]))
+    }
+    names(aggregate_results[[metric]]) <- classifiers
+  }
+  
+  auc_scores_reduced <- aggregate_results$auc
+  f2_scores_reduced <- aggregate_results$f2
+  aggregate_visualization_results_reduced <- visualize(auc_scores_reduced, f2_scores_reduced, 'Aggregate performance using reduced features')
+  
+  list(
+    "grouped_results" = grouped_results,
+    "f2_scores_reduced" = f2_scores_reduced,
+    "auc_scores_reduced" = auc_scores_reduced,
+    "visualization_reduced" = aggregate_visualization_results_reduced
+  )
+}
+
 compute_accuracy <- function(preds, test_labels) {
   mean(preds == test_labels)
 }
