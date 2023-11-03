@@ -11,15 +11,16 @@
 *.docx
 !diploma_thesis.docx
 *.xlsx
-*.pdf
+# *.pdf
 *.pptx
 *.txt
 *.jpg
 *.png
 *.tmp
 
-
+papers/
 dataset/
 useful/
 results/
+presentation_content/
 test*
